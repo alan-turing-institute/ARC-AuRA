@@ -1,0 +1,14 @@
+# Changes here will be overwritten by Copier
+_commit: v0.3.2
+_src_path: gh:alan-turing-institute/python-project-template
+coc: our_coc
+email: pswtton@turing.ac.uk
+full_name: Phil Swatton
+license: BSD
+min_python_version: '3.10'
+org: alan-turing-institute
+project_name: ARC-AuRA
+project_short_description: ARC project on research agents
+python_name: aura
+typing: strict
+url: https://github.com/alan-turing-institute/ARC-AuRA
