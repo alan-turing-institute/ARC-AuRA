@@ -6,25 +6,35 @@
 
 ARC project on research agents
 
-## Installation
+## Developer
 
-```bash
-python -m pip install aura
-```
+1. Download and install docker.
+   
+   MacOS:
 
-From source:
-```bash
-git clone https://github.com/alan-turing-institute/ARC-AuRA
-cd ARC-AuRA
-python -m pip install .
-```
+   ```bash
+   brew trust docker/tap && brew install docker/tap/sbx
+   ```
+
+   Linux:
+
+   ```bash
+   sudo apt-get install docker-sbx
+   ```
+
+2. Create venv and install
+   
+   ```bash
+   uv sync
+   ```
+
+3. Activate the environment
+
+   ```bash
+   source .venv/bin/activate
+   ```
 
 ## Usage
-
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for instructions on how to contribute.
 
 ## License
 
