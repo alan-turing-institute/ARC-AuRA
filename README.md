@@ -32,6 +32,12 @@ uv sync
 source .venv/bin/activate
 ```
 
+5. Install pre-commit
+
+```bash
+uv run pre-commit install
+```
+
 ## Agent sandbox
 
 Agents run in throwaway Docker containers with no internet access. Each run gets a fresh container, which is deleted when the run finishes. API keys never enter the container or the repo.
