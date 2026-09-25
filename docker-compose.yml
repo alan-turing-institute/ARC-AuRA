@@ -1,0 +1,55 @@
+services:
+  agent:
+    image: research-sandbox:0.1
+    profiles: ["run"]            # not started by 'up'; only by run.sh
+    networks: [sandbox_net]      # no internet route
+    environment:
+      ANTHROPIC_BASE_URL: http://litellm:4000
+      ANTHROPIC_AUTH_TOKEN: ${RUN_KEY}
+      ANTHROPIC_MODEL: claude-haiku-4-5
+      ANTHROPIC_DEFAULT_SONNET_MODEL: claude-haiku-4-5
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: claude-haiku-4-5
+      OPENAI_BASE_URL: http://litellm:4000/v1
+      OPENAI_API_KEY: ${RUN_KEY}
+      HTTP_PROXY: http://proxy:3128
+      HTTPS_PROXY: http://proxy:3128
+      NO_PROXY: litellm,litmcp
+      DISABLE_AUTOUPDATER: "1"
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+    volumes:
+      - ./data:/data:ro
+      - ./skills:/skills:ro
+      - ${RUN_DIR}/workspace:/workspace
+    cpus: 4
+    mem_limit: 16g
+    pids_limit: 512
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  litellm:
+    image: ghcr.io/berriai/litellm:v1.100.3
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    environment:
+      AZURE_FOUNDRY_API_KEY: ${AZURE_FOUNDRY_API_KEY:?not set - see Step 4}
+      AZURE_FOUNDRY_API_BASE: ${AZURE_FOUNDRY_API_BASE:?not set - see Step 4}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?not set - see Step 4}
+    volumes: ["./litellm/config.yaml:/app/config.yaml:ro"]
+    networks: [sandbox_net, egress_net]
+
+  # litmcp: optional; leave commented out until the literature server exists
+  # litmcp:
+  #   build: ./litmcp
+  #   environment:
+  #     S2_API_KEY: ${S2_API_KEY:-}
+  #   volumes: ["./litmcp/cache:/cache"]
+  #   networks: [sandbox_net, egress_net]
+
+  proxy:
+    image: ubuntu/squid:7.2-26.04_edge
+    volumes: ["./proxy/squid.conf:/etc/squid/squid.conf:ro"]
+    networks: [sandbox_net, egress_net]
+
+networks:
+  sandbox_net:
+    internal: true
+  egress_net: {}
