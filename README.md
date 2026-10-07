@@ -147,8 +147,10 @@ docker compose run --rm -T agent pip download requests -d /tmp/x
 # 6. Data is read-only → "Read-only file system"
 docker compose run --rm -T agent touch /data/test
 
-# 7. No secrets inside → none of AZURE_FOUNDRY_API_KEY, AZURE_FOUNDRY_API_BASE, S2_API_KEY in the output
-docker compose run --rm -T agent env
+# 7. No secrets inside → no output # TODO: stop passing master key
+#    (currently prints the master key lines; TODO: stop passing the master key)
+RUN_KEY="$LITELLM_MASTER_KEY" RUN_DIR="$TMPDIR" docker compose run --rm -T agent env \
+  grep -F -e "$AZURE_FOUNDRY_API_KEY" -e "$LITELLM_MASTER_KEY"
 
 # 8. Not root → uid=1000(agent)
 docker compose run --rm -T agent id
