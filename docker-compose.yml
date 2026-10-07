@@ -1,6 +1,7 @@
 services:
   agent:
-    image: research-sandbox:0.1
+    image: research-sandbox:${AGENT_TAG:?not set in .env}
+    build: ./agent
     profiles: ["run"]            # not started by 'up'; only by run.sh
     networks: [sandbox_net]      # no internet route
     environment:

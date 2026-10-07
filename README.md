@@ -49,7 +49,7 @@ Agents run in throwaway Docker containers with no internet access. Each run gets
 | `agent` | `agent/Dockerfile` | Image the harness runs in (Claude Code + Python stack). One fresh container per run; sandbox network only. |
 | `litellm` | `litellm/config.yaml` | Model gateway. Holds API keys and forwards model calls; agents only get a gateway key. |
 | `proxy` | `proxy/squid.conf` | Manages agent website access. |
-| `versions.env` | repo root | Agent image tag. Increment it whenever the image changes to keep old images cached. |
+| `.env` | repo root | Agent image tag. Increment it whenever the image changes to keep old images cached. |
 | `scripts/` | | `build.sh` builds the agent image; `run.sh` runs one task. |
 
 ### First time setup
@@ -67,7 +67,7 @@ Note the last of these is required across all models.
 2. Build the agent docker image:
 
 ```bash
-./scripts/build.sh`
+./scripts/build.sh
 ```
 
 ### Each session
@@ -114,7 +114,7 @@ If making changes to the sandbox, some files require extra changes being made el
 
 | If you've changed | Then |
 |---|---|
-| `agent/Dockerfile` or `agent/requirements.txt` | increment `AGENT_TAG` in `versions.env`, then run `./scripts/build.sh` |
+| `agent/Dockerfile` or `agent/requirements.txt` | increment `AGENT_TAG` in `.env`, then run `./scripts/build.sh` |
 | `litellm/config.yaml` | run `docker compose restart litellm` |
 | Keys in `~/.zshrc` | run `source ~/.zshrc`, then `docker compose up -d litellm` |
 

@@ -3,14 +3,14 @@
 # Absolute path to the project root (the folder above this file)
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Load versions.env and pass its variables on to Docker
-VERSIONS_FILE="$PROJECT_ROOT/versions.env"
-if [[ ! -f "$VERSIONS_FILE" ]]; then
-  echo "Error: $VERSIONS_FILE not found" >&2
+# Load .env and pass its variables on to Docker
+ENV_FILE="$PROJECT_ROOT/.env"
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "Error: $ENV_FILE not found" >&2
   exit 1
 fi
-set -a; source "$VERSIONS_FILE"; set +a
-: "${AGENT_TAG:?AGENT_TAG is not set in versions.env}"
+set -a; source "$ENV_FILE"; set +a
+: "${AGENT_TAG:?AGENT_TAG is not set in .env}"
 
 # Always use this project's compose file, wherever the script was run from
 compose() {

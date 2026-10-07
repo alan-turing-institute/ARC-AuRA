@@ -25,7 +25,6 @@ htmlcov/
 .ruff_cache/
 
 # Environment / secrets
-.env
 
 # OS
 .DS_Store
