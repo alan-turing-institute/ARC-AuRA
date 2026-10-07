@@ -8,7 +8,27 @@ ARC project on research agents
 
 1. Download and install `uv`:
 
-2. Download and install docker desktop from <https://docs.docker.com/desktop/setup/install/mac-install/> (or use an appropriate install for Linux). Increase resource limits to at least 6 CPUs and 20GB (YMMV). Verify the installation in a new terminal with
+2. Install Docker, using either Docker Desktop or Colima (a command-line-only alternative). Either way, give it at least 6 CPUs and 20GB of memory (YMMV).
+
+**Docker Desktop:** download and install from <https://docs.docker.com/desktop/setup/install/mac-install/> (or use an appropriate install for Linux), then increase the resource limits in its settings.
+
+**Colima (macOS):** install the Docker CLI, Compose and Colima with Homebrew, then start the Colima VM:
+
+```bash
+brew install docker docker-compose colima
+colima start --cpu 6 --memory 20 --disk 100
+```
+
+Colima remembers these settings, so afterwards plain `colima start` is enough.
+
+**Note:** Colima does not start or stop on its own. Once started, it keeps running in the background (even through sleep or closing the terminal) until you run `colima stop` or shut down your Mac. After a reboot, either run `colima start` before using Docker, or run `brew services start colima` to start it on login. If `docker compose` is not recognised, link the Compose plugin where Docker can find it:
+
+```bash
+mkdir -p ~/.docker/cli-plugins
+ln -sfn /opt/homebrew/lib/docker/cli-plugins/docker-compose ~/.docker/cli-plugins/docker-compose
+```
+
+Verify the installation in a new terminal with
 
 ```bash
 docker run --rm hello-world
@@ -72,7 +92,7 @@ Note the last of these is required across all models.
 
 ### Each session
 
-1. Startup the modelgateway and proxy and verify they are running:
+1. Startup the modelgateway and proxy and verify they are running. If using Colima, start it first with `colima start` (skip this if it is already running; check with `colima status`).
 
 ```bash
 docker compose up -d litellm proxy   # start gateway and proxy
@@ -83,6 +103,12 @@ docker compose ps                    # both should be running
 
 ```bash
 docker compose down
+```
+
+If using Colima, also stop the VM to free up its CPU and memory (it keeps running, even through sleep, until stopped):
+
+```bash
+colima stop
 ```
 
 ### Running a task
