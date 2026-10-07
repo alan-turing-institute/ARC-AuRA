@@ -130,22 +130,22 @@ If needing to check the sandbox is still secure (e.g. after making changes), run
 
 ```bash
 # 1. Gateway reachable → a short "alive" message
-docker compose run --rm -T agent curl -s http://litellm:4000/health/liveliness
+RUN_DIR="$TMPDIR" docker compose run --rm -T agent curl -s http://litellm:4000/health/liveliness
 
 # 2. Model call works → a reply from the model
-docker compose run --rm -T agent claude -p "Say hello" < /dev/null
+RUN_KEY="$LITELLM_MASTER_KEY" RUN_DIR="$TMPDIR" docker compose run --rm -T agent claude -p "Say hello" < /dev/null
 
 # 3. Blocked site via proxy → 403
-docker compose run --rm -T agent curl -sS https://example.com
+RUN_DIR="$TMPDIR" docker compose run --rm -T agent curl -sS https://example.com
 
 # 4. No direct route out → connection error or timeout
-docker compose run --rm -T agent curl --noproxy '*' --max-time 5 https://example.com
+RUN_DIR="$TMPDIR" docker compose run --rm -T agent curl --noproxy '*' --max-time 5 https://example.com
 
 # 5. Package install via proxy → downloads successfully
-docker compose run --rm -T agent pip download requests -d /tmp/x
+RUN_DIR="$TMPDIR" docker compose run --rm -T agent pip download requests -d /tmp/x
 
 # 6. Data is read-only → "Read-only file system"
-docker compose run --rm -T agent touch /data/test
+RUN_DIR="$TMPDIR" docker compose run --rm -T agent touch /data/test
 
 # 7. No secrets inside → no output # TODO: stop passing master key
 #    (currently prints the master key lines; TODO: stop passing the master key)
@@ -153,17 +153,17 @@ RUN_KEY="$LITELLM_MASTER_KEY" RUN_DIR="$TMPDIR" docker compose run --rm -T agent
   | grep -F -e "$AZURE_FOUNDRY_API_KEY" -e "$LITELLM_MASTER_KEY"
 
 # 8. Not root → uid=1000(agent)
-docker compose run --rm -T agent id
+RUN_DIR="$TMPDIR" docker compose run --rm -T agent id
 
 # 9. Memory limit enforced → process killed or MemoryError
-docker compose run --rm -T agent python -c "b = bytearray(20 * 1024**3)"
+RUN_DIR="$TMPDIR" docker compose run --rm -T agent python -c "b = bytearray(20 * 1024**3)"
 
 # 10. Fresh each run → first command succeeds; second says "No such file or directory"
-docker compose run --rm -T agent touch /tmp/marker
-docker compose run --rm -T agent ls /tmp/marker
+RUN_DIR="$TMPDIR" docker compose run --rm -T agent touch /tmp/marker
+RUN_DIR="$TMPDIR" docker compose run --rm -T agent ls /tmp/marker
 
 # 11. Foundry not reachable directly → connection error or timeout (Foundry models only)
-docker compose run --rm -T agent curl --noproxy '*' --max-time 5 https://<resource-name>.services.ai.azure.com
+RUN_DIR="$TMPDIR" docker compose run --rm -T agent curl --noproxy '*' --max-time 5 https://<resource-name>.services.ai.azure.com
 ```
 
 ## License
