@@ -37,3 +37,6 @@ Thumbs.db
 # Misc
 *.log
 .ipynb_checkpoints/
+
+# Ignore litmcp cache
+litmcp/cache/
