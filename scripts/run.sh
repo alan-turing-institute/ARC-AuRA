@@ -8,7 +8,7 @@ export RUN_DIR="$PROJECT_ROOT/runs/$RUN_ID"
 mkdir -p "$RUN_DIR/workspace"
 
 # Tell the harness where the literature server is
-cp mcp.json "$RUN_DIR/workspace/.mcp.json"
+cp "$PROJECT_ROOT/mcp.json" "$RUN_DIR/workspace/.mcp.json"
 
 # Temporary shortcut: see the note below
 export RUN_KEY="${LITELLM_MASTER_KEY:?Set LITELLM_MASTER_KEY in ~/.zshrc}"
