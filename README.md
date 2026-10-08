@@ -84,7 +84,32 @@ export LITELLM_MASTER_KEY="sk-<output of: openssl rand -hex 24>"
 
 Note the last of these is required across all models.
 
-2. Build the agent docker image:
+2. Get a Semantic Scholar API key for the literature server (`litmcp`). It works without one, but unauthenticated requests share a public rate limit and are often refused with HTTP 429.
+
+   1. Make a few unauthenticated requests first, as the application form asks whether you have. For example:
+
+      ```bash
+      curl -s "https://api.semanticscholar.org/graph/v1/paper/search?query=transformers&limit=1&fields=title"
+      ```
+
+      If this returns `Too Many Requests`, wait a minute and try again.
+
+   2. Apply at <https://www.semanticscholar.org/product/api#api-key-form>. The endpoints used are `/graph/v1/paper/search`, `/graph/v1/paper/{paper_id}` and `/graph/v1/paper/{paper_id}/citations`. Results are cached, so a few thousand requests per day is plenty.
+
+   3. Once the key arrives by email, add it to `~/.zshrc` with your other keys, then run `source ~/.zshrc`. Never put it in the repo's `.env`, which is committed.
+
+      ```bash
+      export S2_API_KEY="<semantic scholar key>"
+      ```
+
+   4. Check the key is accepted. This should print `200`:
+
+      ```bash
+      curl -s -o /dev/null -w '%{http_code}\n' -H "x-api-key: $S2_API_KEY" \
+        "https://api.semanticscholar.org/graph/v1/paper/search?query=transformers&limit=1"
+      ```
+
+3. Build the agent docker image:
 
 ```bash
 ./scripts/build.sh

@@ -93,7 +93,7 @@ async def get_paper(paper_id: str) -> dict:
 
 
 @mcp.tool()
-async def get_citations(paper_id: str) -> list[dict]:
+async def get_citations(paper_id: str, limit: int = 20) -> list[dict]:
     """
     Get the citations for a paper by its paper_id. This will first search through the
     cache to see if the citations have already been found, and then using Semantic
@@ -101,11 +101,12 @@ async def get_citations(paper_id: str) -> list[dict]:
 
     Args:
         paper_id: The unique identifier for the paper.
+        limit: Maximum number of citing papers to return, clamped to 1-100.
     Returns:
         List of dictionaries containing the citations for the paper, with each dictionary
         representing a citation.
     """
-    args = {"paper_id": paper_id.strip()}
+    args = {"paper_id": paper_id.strip(), "limit": max(1, min(limit, 100))}
     key = cache.key_for("get_citations", args)
     if (hit := cache.get(key)) is not None:
         return hit
