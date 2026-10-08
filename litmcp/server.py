@@ -19,20 +19,6 @@ MAX_PAGES_PER_READ = 10
 MAX_CHARS_PER_READ = 40_000  # keeps one read_pages result well inside model context
 
 
-# Echo tool for testing the server's responsiveness
-@mcp.tool()
-async def echo(text: str) -> str:
-    """Echo the input text back to the client.
-
-    Args:
-        text: The text to be echoed back.
-
-    Returns:
-        The same text that was received as input.
-    """
-    return text
-
-
 @mcp.tool()
 async def search_papers(
     query: str,
