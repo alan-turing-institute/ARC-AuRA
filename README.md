@@ -50,7 +50,9 @@ Agents run in throwaway Docker containers with no internet access. Each run gets
 | `litellm` | `litellm/config.yaml` | Model gateway. Holds API keys and forwards model calls; agents only get a gateway key. |
 | `proxy` | `proxy/squid.conf` | Manages agent website access. |
 | `.env` | repo root | Agent image tag. Increment it whenever the image changes to keep old images cached. |
-| `scripts/` | | `build.sh` builds the agent image; `run.sh` runs one task. |
+| `scripts/` | | `build.sh` builds the agent image. |
+| `aura run` | `src/aura/` | Assembles a task prompt and runs it in a fresh agent container. |
+| `tasks/` | | Task descriptions; see [Tasks](#tasks). |
 
 ### First time setup
 
@@ -87,26 +89,41 @@ docker compose down
 
 ### Running a task
 
-Tasks are run with the `./scripts/run.sh` script:
+Tasks are run with `aura run`:
 
 ```bash
-./scripts/run.sh <task> <command...>
+aura run <task> [--harness claude-code] [--model claude-haiku-4-5] [--task-tier ideation]
 ```
 
 For example:
 
 ```bash
-./scripts/run.sh dummy_task claude -p "Read /data/dummy_task.md and complete the task. Write results to /workspace/results." \
-  --output-format json --dangerously-skip-permissions
+aura run dummy_task
 ```
 
-Each run creates `runs/<timestamp>-<task>-<n>/` containing:
+The task is passed to the agent inline in its prompt. Each run creates `runs/<timestamp>-<task>-<n>/` containing:
 
 - `workspace/`: everything the agent wrote
 - `log.txt`: full output
-- `run_info.txt`: image tag, task and command
+- `run_config.json`: image tag, options and the full harness command
 
-Inside the container, the agent can read `/data` and `/skills` (read-only) and write to `/workspace`.
+Inside the container, the agent can read `/skills` (read-only) and write to `/workspace`.
+
+### Tasks
+
+Each task is a folder in `tasks/` with one markdown file per tier:
+
+```
+tasks/
+  instructions.md            # shared prompt template; {task} is replaced by the task text
+  <task>/
+    ideation.md
+    research_questions.md
+    lit_review.md
+    instructions.md          # optional; overrides the shared template
+```
+
+Tiers stack in the order ideation → research questions → lit review: `--task-tier research_questions` includes `ideation.md` and `research_questions.md`. Only the files up to the chosen tier need to exist.
 
 ### Making changes
 
@@ -120,7 +137,7 @@ If making changes to the sandbox, some files require extra changes being made el
 
 ### Rules
 
-- Only use `--dangerously-skip-permissions` (in `run.sh`) inside the sandbox; the container is what makes it safe.
+- Only use `--dangerously-skip-permissions` (in `aura run`) inside the sandbox; the container is what makes it safe.
 - Never mount the Docker socket, your home folder or `~/.claude` into the agent container.
 - Never commit keys: store in global environment only.
 
@@ -144,25 +161,22 @@ docker compose run --rm -T agent curl --noproxy '*' --max-time 5 https://example
 # 5. Package install via proxy → downloads successfully
 docker compose run --rm -T agent pip download requests -d /tmp/x
 
-# 6. Data is read-only → "Read-only file system"
-docker compose run --rm -T agent touch /data/test
-
-# 7. No secrets inside → no output # TODO: stop passing master key
+# 6. No secrets inside → no output # TODO: stop passing master key
 #    (currently prints the master key lines; TODO: stop passing the master key)
 RUN_KEY="$LITELLM_MASTER_KEY" RUN_DIR="$TMPDIR" docker compose run --rm -T agent env \
   | grep -F -e "$AZURE_FOUNDRY_API_KEY" -e "$LITELLM_MASTER_KEY"
 
-# 8. Not root → uid=1000(agent)
+# 7. Not root → uid=1000(agent)
 docker compose run --rm -T agent id
 
-# 9. Memory limit enforced → process killed or MemoryError
+# 8. Memory limit enforced → process killed or MemoryError
 docker compose run --rm -T agent python -c "b = bytearray(20 * 1024**3)"
 
-# 10. Fresh each run → first command succeeds; second says "No such file or directory"
+# 9. Fresh each run → first command succeeds; second says "No such file or directory"
 docker compose run --rm -T agent touch /tmp/marker
 docker compose run --rm -T agent ls /tmp/marker
 
-# 11. Foundry not reachable directly → connection error or timeout (Foundry models only)
+# 10. Foundry not reachable directly → connection error or timeout (Foundry models only)
 docker compose run --rm -T agent curl --noproxy '*' --max-time 5 https://<resource-name>.services.ai.azure.com
 ```
 
