@@ -1,0 +1,8 @@
+{
+    "mcpServers": {
+        "literature": {
+            "type": "http",
+            "url": "http://litmcp:8000/mcp"
+        }
+    }
+}

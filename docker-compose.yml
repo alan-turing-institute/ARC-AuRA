@@ -37,13 +37,12 @@ services:
     volumes: ["./litellm/config.yaml:/app/config.yaml:ro"]
     networks: [sandbox_net, egress_net]
 
-  # litmcp: optional; leave commented out until the literature server exists
-  # litmcp:
-  #   build: ./litmcp
-  #   environment:
-  #     S2_API_KEY: ${S2_API_KEY:-}
-  #   volumes: ["./litmcp/cache:/cache"]
-  #   networks: [sandbox_net, egress_net]
+  litmcp:
+    build: ./litmcp
+    environment:
+      S2_API_KEY: ${S2_API_KEY:-}
+    volumes: ["./litmcp/cache:/cache"]
+    networks: [sandbox_net, egress_net]
 
   proxy:
     image: ubuntu/squid:7.2-26.04_edge
