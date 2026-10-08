@@ -168,13 +168,14 @@ For example:
 aura run dummy_task
 ```
 
-The task is passed to the agent inline in its prompt. Each run creates `runs/<timestamp>-<task>-<n>/` containing:
+The task is passed to the agent inline in its prompt and also mounted read-only at `/task/TASK.md`, so the agent can reread it. Each run creates `runs/<timestamp>-<task>-<n>/` containing:
 
 - `workspace/`: everything the agent wrote
+- `task/TASK.md`: the task exactly as the agent received it
 - `log.txt`: full output
 - `run_config.json`: image tag, options and the full harness command
 
-Inside the container, the agent can read `/skills` (read-only) and write to `/workspace`.
+Inside the container, the agent can read `/skills` and `/task` (read-only) and write to `/workspace`.
 
 ### Tasks
 

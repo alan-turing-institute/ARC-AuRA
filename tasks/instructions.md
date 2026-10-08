@@ -10,4 +10,6 @@ The project description is split into components, each wrapped in its own tag. Y
 
 Write all outputs to `/workspace/results`.
 
+This task is also saved at `/task/TASK.md`. Reread it whenever you need to.
+
 {task}
