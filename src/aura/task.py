@@ -11,19 +11,22 @@ def load_instructions(task_dir: Path) -> str:
     return (path if path.exists() else TASKS_DIR / "instructions.md").read_text()
 
 
-def build_prompt(task: str, tier: str) -> str:
-    """Fill the instructions template with task sections up to a tier.
+def load_section(task_dir: Path, name: str) -> str:
+    """Load a task section wrapped in `<name>` tags."""
+    text = (task_dir / f"{name}.md").read_text().strip()
+    return f"<{name}>\n{text}\n</{name}>"
+
+
+def build_prompt(task: str, tier: int) -> str:
+    """Fill the instructions template with tagged task sections up to a tier.
 
     Args:
         task: Name of a folder in `tasks/`.
-        tier: Last entry of `TIERS` to include.
+        tier: Number of sections from `TIERS` to include, in order.
 
     Returns:
         The full prompt.
     """
     task_dir = TASKS_DIR / task
-    sections = [
-        (task_dir / f"{name}.md").read_text().strip()
-        for name in TIERS[: TIERS.index(tier) + 1]
-    ]
+    sections = [load_section(task_dir, name) for name in TIERS[:tier]]
     return load_instructions(task_dir).format(task="\n\n".join(sections))
