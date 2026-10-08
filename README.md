@@ -159,6 +159,11 @@ colima stop
 Tasks are run with `aura run`:
 
 ```bash
+### Running a task
+
+Tasks are run with `aura run`:
+
+```bash
 aura run <task> [--harness claude-code] [--model claude-haiku-4-5] [--task-tier 1]
 ```
 
