@@ -4,6 +4,7 @@
 Semantic Scholar calls are involved here.
 """
 
+import asyncio
 import hashlib
 import json
 
@@ -308,3 +309,24 @@ async def test_unresolvable_host_is_refused(pdf_dir, serve, monkeypatch):
         await pdfs.fetch_pdf(make_paper(arxiv=None))
 
     assert requests == []
+
+
+@pytest.mark.asyncio
+async def test_concurrent_fetches_of_one_paper_download_once(
+    pdf_dir, serve, monkeypatch
+):
+    requests = serve({OA_URL: pdf_response()})
+    resolve = pdfs._resolve  # the fake DNS from pdf_dir
+
+    async def slow_resolve(host, port):
+        # Yield like a real DNS lookup, so concurrent downloads genuinely overlap
+        for _ in range(20):
+            await asyncio.sleep(0)
+        return await resolve(host, port)
+
+    monkeypatch.setattr(pdfs, "_resolve", slow_resolve)
+
+    paths = await asyncio.gather(*(pdfs.fetch_pdf(make_paper()) for _ in range(4)))
+
+    assert len(set(paths)) == 1
+    assert len(requests) == 1

@@ -4,6 +4,7 @@
 involved: the tools read a small PDF built by the `make_pdf` fixture.
 """
 
+import asyncio
 import base64
 
 import pytest
@@ -170,3 +171,31 @@ async def test_page_image_rejects_invalid_page(paper_pdf):
 
     with pytest.raises(ValueError, match="this paper has 2 pages"):
         await server.get_page_image("x", 3)
+
+
+# --- Concurrent agents asking the same question get the same answer ---------------
+
+
+@pytest.mark.asyncio
+async def test_concurrent_identical_searches_share_one_live_result(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(server.cache, "CACHE_DIR", tmp_path)
+    calls = []
+
+    async def live_search(**args):
+        calls.append(args)
+        for _ in range(20):  # yield, as a real request would
+            await asyncio.sleep(0)
+        return [{"paper_id": f"result-of-call-{len(calls)}"}]
+
+    monkeypatch.setattr(server.s2, "search_papers", live_search)
+
+    results = await asyncio.gather(
+        server.search_papers("transformers"),
+        server.search_papers("  transformers  "),  # normalises to the same query
+        server.search_papers("transformers", limit=10),  # default made explicit
+    )
+
+    assert len(calls) == 1
+    assert results[0] == results[1] == results[2]

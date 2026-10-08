@@ -46,6 +46,7 @@ _headers = {
 client = httpx.AsyncClient(follow_redirects=False, timeout=60, headers=_headers)
 _arxiv_lock = asyncio.Lock()
 _last_arxiv = 0.0
+_downloading = cache.KeyedLock()  # one download at a time per paper
 
 
 class UnsafeURLError(Exception):
@@ -184,6 +185,9 @@ async def fetch_pdf(paper: dict) -> Path:
     `.json` sidecar records where it came from and a hash of its contents. Failed
     downloads are not cached, so they are retried next time.
 
+    Concurrent calls for the same paper download it only once: the others wait and
+    then use that copy, so every agent reads exactly the same bytes.
+
     Args:
         paper: The paper as returned by `get_paper`, with `paper_id`,
             `open_access_pdf` and `external_ids`.
@@ -195,24 +199,27 @@ async def fetch_pdf(paper: dict) -> Path:
         ValueError: No open-access PDF could be found or downloaded.
     """
     path = PDF_DIR / f"{paper['paper_id']}.pdf"
-    if path.exists():
+    if path.exists():  # fast path: no lock needed for a hit
         return path
 
-    for url in _candidate_urls(paper):
-        if (data := await _download(url)) is not None:
-            sidecar = {
-                "paper_id": paper["paper_id"],
-                "source_url": url,
-                "sha256": hashlib.sha256(data).hexdigest(),
-                "fetched_at": cache.now(),
-            }
-            # Sidecar first: the PDF's existence marks a cache hit, so any cached
-            # PDF is guaranteed to have its sidecar
-            cache.write_atomic(
-                path.with_suffix(".json"), json.dumps(sidecar, indent=2).encode()
-            )
-            cache.write_atomic(path, data)
+    async with _downloading.hold(paper["paper_id"]):
+        if path.exists():  # someone else may have just downloaded it
             return path
+        for url in _candidate_urls(paper):
+            if (data := await _download(url)) is not None:
+                sidecar = {
+                    "paper_id": paper["paper_id"],
+                    "source_url": url,
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                    "fetched_at": cache.now(),
+                }
+                # Sidecar first: the PDF's existence marks a cache hit, so any
+                # cached PDF is guaranteed to have its sidecar
+                cache.write_atomic(
+                    path.with_suffix(".json"), json.dumps(sidecar, indent=2).encode()
+                )
+                cache.write_atomic(path, data)
+                return path
 
     raise ValueError(
         f"No open-access full text for {paper['paper_id']}; "
