@@ -80,7 +80,9 @@ Agents run in throwaway Docker containers with no internet access. Each run gets
 | `litmcp` | `litmcp/` | Literature MCP server. Searches Semantic Scholar and serves open-access paper text and page images to agents, caching every result in `litmcp/cache/`. Holds the Semantic Scholar key; agents only reach it over the sandbox network. |
 | `mcp.json` | repo root | MCP config that `run.sh` copies into each run's workspace as `.mcp.json`, pointing the agent at `litmcp`. |
 | `.env` | repo root | Agent image tag. Increment it whenever the image changes to keep old images cached. |
-| `scripts/` | | `build.sh` builds the agent and litmcp images; `run.sh` runs one task. |
+| `scripts/` | | `build.sh` builds the agent image. |
+| `aura run` | `src/aura/` | Assembles a task prompt and runs it in a fresh agent container. |
+| `tasks/` | | Task descriptions; see [Tasks](#tasks). |
 
 ### First time setup
 
@@ -154,26 +156,41 @@ colima stop
 
 ### Running a task
 
-Tasks are run with the `./scripts/run.sh` script:
+Tasks are run with `aura run`:
 
 ```bash
-./scripts/run.sh <task> <command...>
+aura run <task> [--harness claude-code] [--model claude-haiku-4-5] [--task-tier ideation]
 ```
 
 For example:
 
 ```bash
-./scripts/run.sh dummy_task claude -p "Read /data/dummy_task.md and complete the task. Write results to /workspace/results." \
-  --output-format json --dangerously-skip-permissions
+aura run dummy_task
 ```
 
-Each run creates `runs/<timestamp>-<task>-<n>/` containing:
+The task is passed to the agent inline in its prompt. Each run creates `runs/<timestamp>-<task>-<n>/` containing:
 
 - `workspace/`: everything the agent wrote
 - `log.txt`: full output
-- `run_info.txt`: image tag, task and command
+- `run_config.json`: image tag, options and the full harness command
 
-Inside the container, the agent can read `/data` and `/skills` (read-only) and write to `/workspace`.
+Inside the container, the agent can read `/skills` (read-only) and write to `/workspace`.
+
+### Tasks
+
+Each task is a folder in `tasks/` with one markdown file per tier:
+
+```
+tasks/
+  instructions.md            # shared prompt template; {task} is replaced by the task text
+  <task>/
+    ideation.md
+    research_questions.md
+    lit_review.md
+    instructions.md          # optional; overrides the shared template
+```
+
+Tiers stack in the order ideation → research questions → lit review: `--task-tier research_questions` includes `ideation.md` and `research_questions.md`. Only the files up to the chosen tier need to exist.
 
 ### Literature tools
 
@@ -209,7 +226,7 @@ If making changes to the sandbox, some files require extra changes being made el
 
 ### Rules
 
-- Only use `--dangerously-skip-permissions` (in `run.sh`) inside the sandbox; the container is what makes it safe.
+- Only use `--dangerously-skip-permissions` (in `aura run`) inside the sandbox; the container is what makes it safe.
 - Never mount the Docker socket, your home folder or `~/.claude` into the agent container.
 - Never commit keys: store in global environment only.
 
