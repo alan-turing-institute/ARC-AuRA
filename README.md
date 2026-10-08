@@ -6,29 +6,27 @@ ARC project on research agents
 
 ## Developer
 
-1. Download and install `uv`:
+1. Download and install `uv`
 
-2. Install Docker, using either Docker Desktop or Colima (a command-line-only alternative). Either way, give it at least 6 CPUs and 20GB of memory (YMMV).
-
-**Docker Desktop:** download and install from <https://docs.docker.com/desktop/setup/install/mac-install/> (or use an appropriate install for Linux), then increase the resource limits in its settings.
-
-**Colima (macOS):** install the Docker CLI, Compose and Colima with Homebrew, then start the Colima VM:
+2. Install the Docker CLI, Compose and Colima (or use another container runtime manager of your choosing, such as Docker Desktop):
 
 ```bash
 brew install docker docker-compose colima
+```
+
+3. Start the Colima VM for the first time, giving it at least 6 CPUs and 20GB of memory (YMMV):
+
+```bash
 colima start --cpu 6 --memory 20 --disk 100
 ```
 
 Colima remembers these settings, so afterwards plain `colima start` is enough.
 
-**Note:** Colima does not start or stop on its own. Once started, it keeps running in the background (even through sleep or closing the terminal) until you run `colima stop` or shut down your Mac. After a reboot, either run `colima start` before using Docker, or run `brew services start colima` to start it on login. If `docker compose` is not recognised, link the Compose plugin where Docker can find it:
+**Note:** Colima does not start or stop on its own. Once started, it keeps running in the background (even through sleep or closing the terminal) until you run `colima stop` or shut down your Mac.
 
-```bash
-mkdir -p ~/.docker/cli-plugins
-ln -sfn /opt/homebrew/lib/docker/cli-plugins/docker-compose ~/.docker/cli-plugins/docker-compose
-```
+After a reboot, either run `colima start` before using Docker, or run `brew services start colima` to start it on login.
 
-Verify the installation in a new terminal with
+4. Verify the installation in a new terminal with
 
 ```bash
 docker run --rm hello-world
@@ -40,19 +38,29 @@ followed by:
 docker compose version
 ```
 
-3. Create venv and install by running
+If `docker compose` is not recognised, add the path (`"/opt/homebrew/lib/docker/cli-plugins"` if installing with homebrew) to a list under the key `cliPluginsExtraDirs` in `~/.docker/config.json`.
+
+The below command assumes this key isn't yet in the config and will overwrite it if it is present:
+
+```bash
+jq '.cliPluginsExtraDirs = ["/opt/homebrew/lib/docker/cli-plugins"]' \
+  ~/.docker/config.json > /tmp/docker-config.json \
+  && mv /tmp/docker-config.json ~/.docker/config.json
+```
+
+5. Create venv and install by running
 
 ```bash
 uv sync
 ```
 
-4. Activate the environment
+6. Activate the environment
 
 ```bash
 source .venv/bin/activate
 ```
 
-5. Install pre-commit
+7. Install pre-commit
 
 ```bash
 uv run pre-commit install
@@ -92,20 +100,26 @@ Note the last of these is required across all models.
 
 ### Each session
 
-1. Startup the modelgateway and proxy and verify they are running. If using Colima, start it first with `colima start` (skip this if it is already running; check with `colima status`).
+1. If not already started, startup colima:
+
+```bash
+colima start
+```
+
+2. Startup the modelgateway and proxy and verify they are running. If using Colima, start it first with `colima start` (skip this if it is already running; check with `colima status`).
 
 ```bash
 docker compose up -d litellm proxy   # start gateway and proxy
 docker compose ps                    # both should be running
 ```
 
-2. Once finished for the day, shut everything down aferwards with:
+3. Once finished for the day, shut everything down aferwards with:
 
 ```bash
 docker compose down
 ```
 
-If using Colima, also stop the VM to free up its CPU and memory (it keeps running, even through sleep, until stopped):
+4. Stop the colima VM to free up its CPU and memory (it keeps running, even through sleep, until stopped):
 
 ```bash
 colima stop
