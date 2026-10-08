@@ -17,9 +17,10 @@ def main() -> None:
     )
     run_parser.add_argument(
         "--task-tier",
-        choices=TIERS,
-        default="ideation",
-        help="Include task sections up to and including this one.",
+        type=int,
+        choices=range(1, len(TIERS) + 1),
+        default=1,
+        help=f"Number of task sections to include, in order: {', '.join(TIERS)}.",
     )
     args = parser.parse_args()
     run(args.task, args.harness, args.model, args.task_tier)

@@ -92,7 +92,7 @@ docker compose down
 Tasks are run with `aura run`:
 
 ```bash
-aura run <task> [--harness claude-code] [--model claude-haiku-4-5] [--task-tier ideation]
+aura run <task> [--harness claude-code] [--model claude-haiku-4-5] [--task-tier 1]
 ```
 
 For example:
@@ -117,13 +117,13 @@ Each task is a folder in `tasks/` with one markdown file per tier:
 tasks/
   instructions.md            # shared prompt template; {task} is replaced by the task text
   <task>/
-    ideation.md
+    requirement.md
     research_questions.md
     lit_review.md
     instructions.md          # optional; overrides the shared template
 ```
 
-Tiers stack in the order ideation → research questions → lit review: `--task-tier research_questions` includes `ideation.md` and `research_questions.md`. Only the files up to the chosen tier need to exist.
+Tiers are numbered and stack in order: 1 = requirement, 2 = + research questions, 3 = + lit review. For example, `--task-tier 2` includes `requirement.md` and `research_questions.md`. Each section is wrapped in tags named after its file (e.g. `<requirement>…</requirement>`), and the shared template explains what each one is. Only the files up to the chosen tier need to exist.
 
 ### Making changes
 

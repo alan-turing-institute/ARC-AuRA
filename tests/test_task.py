@@ -15,10 +15,16 @@ def tasks_dir(tmp_path, monkeypatch):
 
 
 def test_tiers_stack(tasks_dir):
-    prompt = task.build_prompt("task", "research_questions")
-    assert prompt == "Base\n\nideation text\n\nresearch_questions text"
+    prompt = task.build_prompt("task", 2)
+    assert prompt == (
+        "Base\n\n<requirement>\nrequirement text\n</requirement>\n\n"
+        "<research_questions>\nresearch_questions text\n</research_questions>"
+    )
 
 
 def test_task_instructions_override(tasks_dir):
     (tasks_dir / "task" / "instructions.md").write_text("Own: {task}")
-    assert task.build_prompt("task", "ideation") == "Own: ideation text"
+    assert (
+        task.build_prompt("task", 1)
+        == "Own: <requirement>\nrequirement text\n</requirement>"
+    )

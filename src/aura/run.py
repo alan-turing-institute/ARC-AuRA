@@ -58,7 +58,7 @@ def compose_run(command: list[str], run_dir: Path) -> None:
         raise subprocess.CalledProcessError(proc.returncode, proc.args)
 
 
-def run(task: str, harness: str, model: str, tier: str) -> None:
+def run(task: str, harness: str, model: str, tier: int) -> None:
     prompt = build_prompt(task, tier)
     command = HARNESSES[harness](prompt, model)
     run_dir = make_run_dir(task)

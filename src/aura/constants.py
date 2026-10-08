@@ -10,4 +10,4 @@ TASKS_DIR = PROJECT_ROOT / "tasks"
 
 # Constants
 AGENT_TAG = dotenv_values(PROJECT_ROOT / ".env")["AGENT_TAG"]
-TIERS = ("ideation", "research_questions", "lit_review")
+TIERS = ("requirement", "research_questions", "lit_review")
