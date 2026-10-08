@@ -124,16 +124,51 @@ async def test_character_cap_stops_early(paper_pdf, monkeypatch):
     assert "start=2, end=5" in text
 
 
+NOTE_ALLOWANCE = 300  # room for the truncation and continuation notes
+
+
 @pytest.mark.asyncio
-async def test_first_page_is_returned_even_if_over_character_cap(
-    paper_pdf, monkeypatch
-):
-    monkeypatch.setattr(server, "MAX_CHARS_PER_READ", 5)
-    paper_pdf(numbered_pages(2))
+async def test_oversized_single_page_is_truncated_with_note(paper_pdf, monkeypatch):
+    monkeypatch.setattr(server, "MAX_CHARS_PER_READ", 40)
+    paper_pdf([[f"Line {i} of an enormous text layer." for i in range(50)]])
 
     text = await server.read_pages("x", 1, 1)
 
-    assert "Text of page 1." in text
+    assert len(text) <= 40 + NOTE_ALLOWANCE
+    assert text.startswith("--- page 1 ---\nLine 0")
+    assert "Line 49" not in text
+    assert "Page 1 truncated" in text
+    assert "get_page_image(paper_id, page=1)" in text
+
+
+@pytest.mark.asyncio
+async def test_oversized_first_page_of_range_continues_from_next_page(
+    paper_pdf, monkeypatch
+):
+    monkeypatch.setattr(server, "MAX_CHARS_PER_READ", 40)
+    huge_page = [f"Line {i} of an enormous text layer." for i in range(50)]
+    paper_pdf([huge_page, ["Page two."], ["Page three."]])
+
+    text = await server.read_pages("x", 1, 3)
+
+    assert "Page 1 truncated" in text
+    assert "--- page 2 ---" not in text
+    assert "continue with read_pages(paper_id, start=2, end=3)" in text
+
+
+@pytest.mark.asyncio
+async def test_output_never_exceeds_limit_by_more_than_notes(paper_pdf, monkeypatch):
+    monkeypatch.setattr(server, "MAX_CHARS_PER_READ", 200)
+    # Pages of very different sizes, including ones far over the limit
+    sizes = [1, 3, 80, 2, 40, 1, 120, 5, 1, 60, 2, 9]
+    paper_pdf(
+        [[f"Row {r} of page {p}." for r in range(n)] for p, n in enumerate(sizes)]
+    )
+
+    for start in range(1, len(sizes) + 1):
+        for end in range(start, len(sizes) + 1):
+            text = await server.read_pages("x", start, end)
+            assert len(text) <= 200 + NOTE_ALLOWANCE, (start, end, len(text))
 
 
 @pytest.mark.asyncio

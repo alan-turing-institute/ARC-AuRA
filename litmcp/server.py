@@ -141,7 +141,8 @@ async def read_pages(paper_id: str, start: int, end: int) -> str:
     Read the text of pages start to end (inclusive) of a paper's PDF. Pages are
     numbered from 1, matching get_fulltext_info. At most 10 pages (or about 40,000
     characters) are returned per call; if the range is cut short, the result ends
-    with a note saying where to continue.
+    with a note saying where to continue. A single page longer than that limit is
+    cut short too, with a note: view the rest of it with get_page_image.
 
     Args:
         paper_id: Semantic Scholar id, or "DOI:<doi>", or "ARXIV:<arxiv id>".
@@ -162,7 +163,19 @@ async def read_pages(paper_id: str, start: int, end: int) -> str:
     for page in range(start, min(end, start + MAX_PAGES_PER_READ - 1) + 1):
         text = "\n".join(texts[page - 1].splitlines())  # drop pdfium's "\r"
         block = f"--- page {page} ---\n{text}"
-        if blocks and total + len(block) > MAX_CHARS_PER_READ:
+        if total + len(block) > MAX_CHARS_PER_READ:
+            if blocks:  # stop before this page; the note below says to resume here
+                break
+            # This one page alone is over the limit (an unusually large text layer):
+            # return the part that fits and say so, rather than an unbounded response
+            blocks.append(block[:MAX_CHARS_PER_READ])
+            shown = max(MAX_CHARS_PER_READ - (len(block) - len(text)), 0)
+            blocks.append(
+                f"[Page {page} truncated: showing the first {shown:,} of "
+                f"{len(text):,} characters. The rest of this page isn't available "
+                f"as text; use get_page_image(paper_id, page={page}) to view it.]"
+            )
+            last = page
             break
         blocks.append(block)
         total += len(block)
