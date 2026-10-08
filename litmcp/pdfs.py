@@ -12,6 +12,7 @@ import logging
 import math
 import re
 import socket
+import threading
 import time
 from pathlib import Path
 
@@ -47,6 +48,10 @@ client = httpx.AsyncClient(follow_redirects=False, timeout=60, headers=_headers)
 _arxiv_lock = asyncio.Lock()
 _last_arxiv = 0.0
 _downloading = cache.KeyedLock()  # one download at a time per paper
+# PDFium isn't thread-safe, and pdfium work runs in threads (asyncio.to_thread) so it
+# doesn't block the server; this lock makes sure only one thread uses it at a time
+_pdfium_lock = threading.Lock()
+EOF_SEARCH_BYTES = 2048  # "%%EOF" may be followed by a little whitespace or junk
 
 
 class UnsafeURLError(Exception):
@@ -169,11 +174,41 @@ async def _download(url: str) -> bytes | None:
         logger.warning("Refused PDF URL: %s", e)
         return None
 
-    # Every PDF starts with "%PDF"; this catches HTML login pages served as "PDFs".
-    # The Content-Type header isn't checked because servers often get it wrong.
-    if data is None or not data.startswith(b"%PDF"):
+    if data is None:
+        return None
+    # Parsing is CPU work; a thread keeps the server responsive meanwhile
+    if not await asyncio.to_thread(_is_complete_pdf, data):
+        logger.warning("Discarded unreadable or incomplete PDF from %s", url)
         return None
     return data
+
+
+def _is_complete_pdf(data: bytes) -> bool:
+    """
+    Check downloaded bytes are a complete, readable PDF before they are cached.
+
+    Anything cached is served to every later caller and never re-downloaded, so a bad
+    file here would break that paper for good (and stop other sources being tried).
+    Three checks, each catching something the others miss:
+
+    - starts with "%PDF": rejects HTML pages (e.g. logins) served in place of a PDF.
+      The Content-Type header isn't checked because servers often get it wrong.
+    - "%%EOF" near the end: rejects downloads cut short. pdfium repairs truncated
+      files rather than refusing them, so a PDF missing its last 10% still opens
+      with every page "loading", just silently missing content.
+    - pdfium opens it and can load every page: rejects corrupt files.
+    """
+    if not data.startswith(b"%PDF") or b"%%EOF" not in data[-EOF_SEARCH_BYTES:]:
+        return False
+    try:
+        with _pdfium_lock, pdfium.PdfDocument(data) as pdf:
+            if len(pdf) < 1:
+                return False
+            for index in range(len(pdf)):
+                pdf[index].close()
+    except pdfium.PdfiumError:
+        return False
+    return True
 
 
 async def fetch_pdf(paper: dict) -> Path:
@@ -229,7 +264,7 @@ async def fetch_pdf(paper: dict) -> Path:
 
 def read_texts(path: Path) -> list[str]:
     """Read the text from a PDF file, returning a list of pages as strings."""
-    with pdfium.PdfDocument(path) as pdf:
+    with _pdfium_lock, pdfium.PdfDocument(path) as pdf:
         texts = []
         for page in pdf:
             textpage = page.get_textpage()
@@ -339,7 +374,7 @@ def render_page(path: Path, page: int, width: int = PAGE_IMAGE_WIDTH) -> bytes:
         ValueError: The page number is outside the document, or the page's size can't
             be rendered within the limits.
     """
-    with pdfium.PdfDocument(path) as pdf:
+    with _pdfium_lock, pdfium.PdfDocument(path) as pdf:
         if not 1 <= page <= len(pdf):
             raise ValueError(
                 f"Invalid page {page}: this paper has {len(pdf)} pages, "

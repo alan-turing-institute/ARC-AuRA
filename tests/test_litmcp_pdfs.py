@@ -7,13 +7,17 @@ Semantic Scholar calls are involved here.
 import asyncio
 import hashlib
 import json
+import threading
+import time
 
 import httpx
 import pdfs
 import pytest
 import pytest_asyncio
+from conftest import _make_pdf
 
-PDF = b"%PDF-1.4 fake pdf body"
+# A real (tiny) PDF: downloads are now opened with pdfium before being cached
+PDF = _make_pdf([["A real PDF."]])
 OA_URL = "https://publisher.example/paper.pdf"
 ARXIV_URL = "https://arxiv.org/pdf/1706.03762"
 
@@ -330,3 +334,89 @@ async def test_concurrent_fetches_of_one_paper_download_once(
 
     assert len(set(paths)) == 1
     assert len(requests) == 1
+
+
+# --- Downloads must be complete, readable PDFs before they are cached --------------
+
+
+def pdf_bytes_response(content: bytes) -> httpx.Response:
+    return httpx.Response(
+        200, content=content, headers={"content-type": "application/pdf"}
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "bad",
+    [
+        PDF[: int(len(PDF) * 0.9)],  # cut short: pdfium would still open this
+        PDF[: len(PDF) // 2],  # cut short: pdfium refuses this
+        b"%PDF-1.4\n"
+        + b"\x00garbage" * 50
+        + b"\n%%EOF\n",  # right markers, corrupt body
+        _make_pdf([]),  # well-formed but no pages
+    ],
+    ids=["truncated-90pc", "truncated-50pc", "corrupt", "no-pages"],
+)
+async def test_unreadable_pdf_is_not_cached_and_arxiv_is_tried(pdf_dir, serve, bad):
+    requests = serve({OA_URL: pdf_bytes_response(bad), ARXIV_URL: pdf_response()})
+
+    path = await pdfs.fetch_pdf(make_paper())
+
+    assert path.read_bytes() == PDF  # the good arXiv copy, not the publisher's
+    assert [r.url.host for r in requests] == ["publisher.example", "arxiv.org"]
+    sidecar = json.loads(path.with_suffix(".json").read_text())
+    assert sidecar["source_url"] == ARXIV_URL
+
+
+@pytest.mark.asyncio
+async def test_unreadable_pdf_with_no_alternative_caches_nothing(pdf_dir, serve):
+    serve({OA_URL: pdf_bytes_response(PDF[: len(PDF) // 2])})
+
+    with pytest.raises(ValueError, match="No open-access full text"):
+        await pdfs.fetch_pdf(make_paper(arxiv=None))
+
+    assert not pdf_dir.exists() or not any(pdf_dir.iterdir())
+
+
+def test_trailing_bytes_after_eof_marker_are_accepted():
+    # Some generators append whitespace or junk after %%EOF; real readers accept it
+    assert pdfs._is_complete_pdf(PDF + b"\n" * 10 + b"junk")
+
+
+def test_pdfium_is_never_used_by_two_threads_at_once(tmp_path, monkeypatch):
+    path = tmp_path / "paper.pdf"
+    path.write_bytes(_make_pdf([["Page one"], ["Page two"]]))
+    active, most_active = 0, 0
+    counter = threading.Lock()
+    real_document = pdfs.pdfium.PdfDocument
+
+    class TrackedDocument(real_document):
+        def __init__(self, *args, **kwargs):
+            nonlocal active, most_active
+            with counter:
+                active += 1
+                most_active = max(most_active, active)
+            time.sleep(0.01)  # widen the window for overlap
+            super().__init__(*args, **kwargs)
+
+        def close(self):
+            nonlocal active
+            with counter:
+                active -= 1
+            super().close()
+
+    monkeypatch.setattr(pdfs.pdfium, "PdfDocument", TrackedDocument)
+
+    async def hammer():
+        jobs = []
+        for _ in range(4):
+            jobs.append(asyncio.to_thread(pdfs.read_texts, path))
+            jobs.append(asyncio.to_thread(pdfs.render_page, path, 1, 200))
+            jobs.append(asyncio.to_thread(pdfs._is_complete_pdf, path.read_bytes()))
+        return await asyncio.gather(*jobs)
+
+    results = asyncio.run(hammer())
+
+    assert most_active == 1
+    assert all(results)
