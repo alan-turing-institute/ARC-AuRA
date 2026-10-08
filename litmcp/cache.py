@@ -3,10 +3,13 @@ On-disk cache of tool results, so every agent asking the same question gets the 
 answer. Each entry is one JSON file named by a hash of the tool name and its arguments.
 """
 
+import asyncio
+import contextlib
 import hashlib
 import json
 import os
 import tempfile
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -96,3 +99,70 @@ def write_atomic(path: Path, data: bytes) -> None:
 def now() -> str:
     """Current UTC time as an ISO 8601 string, for `fetched_at` fields."""
     return datetime.now(timezone.utc).isoformat()
+
+
+class KeyedLock:
+    """
+    One asyncio lock per key, created on demand and dropped when no one holds or waits
+    for it, so memory doesn't grow with the number of distinct keys ever seen.
+
+    Callers using the same key run one at a time; different keys don't block each
+    other. This is only safe within one process (the server runs as one), which is
+    also why no locking is needed around the bookkeeping below: asyncio code can't be
+    interrupted between awaits.
+    """
+
+    def __init__(self) -> None:
+        self._locks: dict[str, asyncio.Lock] = {}
+        self._users: dict[str, int] = {}
+
+    @contextlib.asynccontextmanager
+    async def hold(self, key: str) -> AsyncIterator[None]:
+        lock = self._locks.setdefault(key, asyncio.Lock())
+        self._users[key] = self._users.get(key, 0) + 1
+        try:
+            async with lock:
+                yield
+        finally:
+            self._users[key] -= 1
+            if not self._users[key]:
+                del self._users[key], self._locks[key]
+
+    def __len__(self) -> int:
+        """Number of keys currently held or waited for."""
+        return len(self._locks)
+
+
+_fetching = KeyedLock()
+
+
+async def get_or_fetch(
+    tool: str, args: dict[str, Any], fetch: Callable[[], Awaitable[Any]]
+) -> Any:
+    """
+    Return the cached result for a tool call, or fetch, store and return it.
+
+    Concurrent calls with the same tool and arguments are "single-flighted": only the
+    first calls `fetch`, and the others wait and then read what it stored. Without this,
+    two agents asking the same question at the same moment could both miss the cache
+    and each get a different live answer, breaking the guarantee that everyone sees
+    the same results. Errors from `fetch` are not cached, so a later call retries.
+
+    Args:
+        tool: Name of the tool, e.g. "search_papers".
+        args: The tool's normalised arguments, by name.
+        fetch: Called with no arguments to get the live result on a cache miss.
+
+    Returns:
+        The cached or freshly fetched result.
+    """
+    key = key_for(tool, args)
+    if (hit := get(key)) is not None:  # fast path: no lock needed for a hit
+        return hit
+    async with _fetching.hold(key):
+        # Check again: whoever held the lock before us may have just stored it
+        if (hit := get(key)) is not None:
+            return hit
+        result = await fetch()
+        put(key, tool, args, result)
+        return result

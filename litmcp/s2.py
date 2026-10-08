@@ -17,8 +17,14 @@ client = httpx.AsyncClient(base_url=BASE_URL, headers=_headers, timeout=30)
 
 _lock = asyncio.Lock()
 _last_call = 0.0
+# time.monotonic() before which no request may be sent by anyone: set when S2 rate
+# limits us, because the limit applies to the shared API key, not to one request
+_not_before = 0.0
 MIN_GAP = 1.0  # seconds between requests (S2 allows ~1 request/second with a key)
 MAX_ATTEMPTS = 4
+MAX_RETRY_AFTER = (
+    60.0  # seconds: cap on an honoured Retry-After, so a bogus one can't stall us
+)
 
 
 def _error_message(response: httpx.Response) -> str:
@@ -31,13 +37,28 @@ def _error_message(response: httpx.Response) -> str:
 
 
 def _retry_delay(response: httpx.Response | None, attempt: int) -> float:
-    """Seconds to wait before retrying: S2's Retry-After if given, else 1, 2, 4..."""
+    """Seconds to wait before retrying: S2's Retry-After if given (capped at
+    MAX_RETRY_AFTER), else 1, 2, 4..."""
     if response is not None:
         try:
-            return float(response.headers["Retry-After"])
+            return min(
+                max(float(response.headers["Retry-After"]), 0.0), MAX_RETRY_AFTER
+            )
         except (KeyError, ValueError):
             pass
     return 2.0**attempt
+
+
+def _pauses_everyone(response: httpx.Response | None) -> bool:
+    """Whether a failed response means the whole API key should back off.
+
+    A 429 is a rate limit on our key, and a Retry-After header (e.g. on a 503) is the
+    server asking all clients to wait. Other server errors and network failures only
+    back off the request that hit them.
+    """
+    return response is not None and (
+        response.status_code == 429 or "Retry-After" in response.headers
+    )
 
 
 async def _get(path: str, params: dict) -> dict:
@@ -46,7 +67,9 @@ async def _get(path: str, params: dict) -> dict:
 
     Requests from all callers are queued so only one is sent at a time, at least
     MIN_GAP seconds apart. Rate limiting (429), server errors (5xx) and network failures
-    are retried with exponential backoff, up to MAX_ATTEMPTS in total.
+    are retried, up to MAX_ATTEMPTS in total. A 429 (or any Retry-After) pauses *all*
+    callers until the server's requested time, since they share one API key; other
+    failures back off only the request that hit them (exponentially: 1, 2, 4 s).
 
     Args:
         path: API path relative to BASE_URL, e.g. "/paper/search".
@@ -60,13 +83,15 @@ async def _get(path: str, params: dict) -> dict:
             message is S2's own, so the model can correct its arguments.
         RuntimeError: S2 was still unavailable after MAX_ATTEMPTS.
     """
-    global _last_call
+    global _last_call, _not_before
     response = None
     for attempt in range(MAX_ATTEMPTS):
-        # The lock covers only the throttle and the request, so one request backing
-        # off below doesn't hold up everyone else's.
+        # The lock covers the throttle, the request and recording any server-wide
+        # pause, so the next caller in the queue always sees the pause before sending.
+        # A request's own backoff (below) happens outside it, so it holds no one up.
         async with _lock:
-            wait = MIN_GAP - (time.monotonic() - _last_call)
+            now = time.monotonic()
+            wait = max(MIN_GAP - (now - _last_call), _not_before - now)
             if wait > 0:
                 await asyncio.sleep(wait)
             try:
@@ -74,6 +99,9 @@ async def _get(path: str, params: dict) -> dict:
             except httpx.TransportError:  # timeout, dropped connection, etc.
                 response = None
             _last_call = time.monotonic()
+            if _pauses_everyone(response):
+                pause_until = _last_call + _retry_delay(response, attempt)
+                _not_before = max(_not_before, pause_until)
 
         if response is not None:
             if response.status_code == 429 or response.status_code >= 500:
@@ -84,7 +112,9 @@ async def _get(path: str, params: dict) -> dict:
                 response.raise_for_status()
                 return response.json()
 
-        if attempt < MAX_ATTEMPTS - 1:
+        # A server-wide pause is waited out under the lock on the next attempt;
+        # anything else backs off just this request
+        if attempt < MAX_ATTEMPTS - 1 and not _pauses_everyone(response):
             await asyncio.sleep(_retry_delay(response, attempt))
 
     reason = "network error" if response is None else _error_message(response)

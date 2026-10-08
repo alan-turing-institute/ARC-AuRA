@@ -56,12 +56,9 @@ async def search_papers(
         "year": year,
         "venue": venue,
     }
-    key = cache.key_for("search_papers", args)
-    if (hit := cache.get(key)) is not None:
-        return hit
-    results = await s2.search_papers(**args)
-    cache.put(key, "search_papers", args, results)
-    return results
+    return await cache.get_or_fetch(
+        "search_papers", args, lambda: s2.search_papers(**args)
+    )
 
 
 @mcp.tool()
@@ -76,12 +73,7 @@ async def get_paper(paper_id: str) -> dict:
         Metadata for the paper, with a dictionary containing the paper's details.
     """
     args = {"paper_id": paper_id.strip()}
-    key = cache.key_for("get_paper", args)
-    if (hit := cache.get(key)) is not None:
-        return hit
-    result = await s2.get_paper(**args)
-    cache.put(key, "get_paper", args, result)
-    return result
+    return await cache.get_or_fetch("get_paper", args, lambda: s2.get_paper(**args))
 
 
 @mcp.tool()
@@ -99,12 +91,9 @@ async def get_citations(paper_id: str, limit: int = 20) -> list[dict]:
         representing a citation.
     """
     args = {"paper_id": paper_id.strip(), "limit": max(1, min(limit, 100))}
-    key = cache.key_for("get_citations", args)
-    if (hit := cache.get(key)) is not None:
-        return hit
-    result = await s2.get_citations(**args)
-    cache.put(key, "get_citations", args, result)
-    return result
+    return await cache.get_or_fetch(
+        "get_citations", args, lambda: s2.get_citations(**args)
+    )
 
 
 async def _paper_texts(paper_id: str) -> tuple[dict, list[str]]:
