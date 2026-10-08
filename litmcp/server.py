@@ -64,7 +64,7 @@ async def search_papers(
         "year": year,
         "venue": venue,
     }
-    key = cache.key_for("search_papers", *args)
+    key = cache.key_for("search_papers", args)
     if (hit := cache.get(key)) is not None:
         return hit
     results = await s2.search_papers(**args)
