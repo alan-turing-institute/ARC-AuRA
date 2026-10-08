@@ -9,7 +9,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY cache.py s2.py server.py ./
+COPY cache.py pdfs.py s2.py server.py ./
 
 RUN useradd --create-home --uid 1000 litmcp \
     && mkdir -p /cache \

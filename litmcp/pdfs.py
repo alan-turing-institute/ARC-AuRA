@@ -5,16 +5,24 @@ academic literature accessible by agents.
 
 import asyncio
 import hashlib
+import io
 import json
+import re
 import time
 from pathlib import Path
 
 import cache
 import httpx
+import pypdfium2 as pdfium
 
 PDF_DIR = cache.CACHE_DIR / "pdfs"
 MAX_BYTES = 50 * 1024 * 1024  # 50 MB
 ARXIV_GAP = 3.0  # seconds between requests to arxiv.org (arXiv's published policy)
+# A caption starts a line with a label, a number and ":" or "." ("Figure 1: ...").
+# The separator is what tells it apart from body text like "Table 2 summarizes ..."
+CAPTION = re.compile(r"^\s*(Figure|Fig\.|Table)\s*(S?\d+)\s*[:.]\s*(.*)", re.IGNORECASE)
+MAX_CAPTION_CHARS = 150  # captions are a map of the paper, not its full text
+PAGE_IMAGE_WIDTH = 1200  # pixels: plot labels stay legible without a huge image
 
 # A separate client from s2.py, so the S2 API key is never sent to PDF hosts
 _headers = {
@@ -124,13 +132,79 @@ async def fetch_pdf(paper: dict) -> Path:
     )
 
 
-def read_texts(path) -> list[str]:
-    pass
+def read_texts(path: Path) -> list[str]:
+    """Read the text from a PDF file, returning a list of pages as strings."""
+    with pdfium.PdfDocument(path) as pdf:
+        texts = []
+        for page in pdf:
+            textpage = page.get_textpage()
+            texts.append(textpage.get_text_range())
+    return texts
 
 
-def find_captions(texts) -> list[dict]:
-    pass
+def find_captions(texts: list[str]) -> list[dict]:
+    """
+    Find captions for figures and tables in a list of page texts.
+
+    Only the first line of each caption is kept (cut to MAX_CAPTION_CHARS), as a map
+    of where figures are; `read_pages` gives the full text. Labels are normalised, so
+    "Fig. 3." and "FIGURE 3:" are both type "Figure", number "3". If a caption appears
+    more than once (e.g. "Table 2 (continued)"), only its first page is kept.
+
+    Args:
+        texts: Text of each page, in order, as returned by `read_texts`.
+
+    Returns:
+        Dicts of {"page" (1-based), "type" ("Figure" or "Table"), "number", "caption"}.
+    """
+    captions, seen = [], set()
+    for page, text in enumerate(texts, start=1):
+        for line in text.splitlines():  # handles pdfium's "\r\n" line endings
+            if not (match := CAPTION.match(line)):
+                continue
+            kind = "Figure" if match.group(1).lower().startswith("fig") else "Table"
+            number = match.group(2).upper()  # "s1" -> "S1"
+            if (kind, number) in seen:
+                continue
+            seen.add((kind, number))
+            captions.append(
+                {
+                    "page": page,
+                    "type": kind,
+                    "number": number,
+                    "caption": match.group(3).strip()[:MAX_CAPTION_CHARS],
+                }
+            )
+    return captions
 
 
-def render_page(path, page, width=1200) -> bytes:
-    pass
+def render_page(path: Path, page: int, width: int = PAGE_IMAGE_WIDTH) -> bytes:
+    """
+    Render one page of a PDF as a PNG image.
+
+    The whole page is rendered rather than extracting figure images, because plots in
+    PDFs are often vector drawings with no embedded image to extract.
+
+    Args:
+        path: The PDF file.
+        page: Page number, 1-based.
+        width: Width of the image in pixels; height follows the page's aspect ratio.
+
+    Returns:
+        The PNG file contents.
+
+    Raises:
+        ValueError: The page number is outside the document.
+    """
+    with pdfium.PdfDocument(path) as pdf:
+        if not 1 <= page <= len(pdf):
+            raise ValueError(
+                f"Invalid page {page}: this paper has {len(pdf)} pages, "
+                "numbered from 1."
+            )
+        pdf_page = pdf[page - 1]
+        scale = width / pdf_page.get_width()  # PDF widths are in points (1/72 inch)
+        image = pdf_page.render(scale=scale).to_pil()
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG", optimize=True)
+    return buffer.getvalue()
