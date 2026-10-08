@@ -16,6 +16,16 @@ PDF = b"%PDF-1.4 fake pdf body"
 OA_URL = "https://publisher.example/paper.pdf"
 ARXIV_URL = "https://arxiv.org/pdf/1706.03762"
 
+# Fake DNS for tests: hosts listed here resolve to these addresses; any other host
+# resolves to a public address (a documentation-range IP would count as non-global)
+DNS = {
+    "internal.example": ["10.0.0.5"],
+    "metadata.example": ["169.254.169.254"],
+    "mixed.example": ["93.184.215.14", "192.168.1.1"],
+    "mapped.example": ["::ffff:10.0.0.5"],
+}
+PUBLIC_IP = "93.184.215.14"
+
 
 def make_paper(open_access_pdf: str | None = OA_URL, arxiv: str | None = "1706.03762"):
     return {
@@ -28,9 +38,18 @@ def make_paper(open_access_pdf: str | None = OA_URL, arxiv: str | None = "1706.0
 
 @pytest.fixture
 def pdf_dir(tmp_path, monkeypatch):
-    """Point the PDF cache at a temporary folder and remove arXiv waits."""
+    """Point the PDF cache at a temporary folder, remove arXiv waits, and fake DNS."""
+
+    async def fake_resolve(host: str, port: int) -> list[str]:
+        try:  # an IP literal "resolves" to itself, as with real getaddrinfo
+            pdfs.ipaddress.ip_address(host)
+            return [host]
+        except ValueError:
+            return DNS.get(host, [PUBLIC_IP])
+
     monkeypatch.setattr(pdfs, "PDF_DIR", tmp_path / "pdfs")
     monkeypatch.setattr(pdfs, "ARXIV_GAP", 0)
+    monkeypatch.setattr(pdfs, "_resolve", fake_resolve)
     return tmp_path / "pdfs"
 
 
@@ -179,3 +198,113 @@ async def test_oversized_download_is_rejected(pdf_dir, monkeypatch, serve):
         await pdfs.fetch_pdf(make_paper(arxiv=None))
 
     assert not pdf_dir.exists() or not any(pdf_dir.iterdir())
+
+
+# --- SSRF protection: litmcp must only fetch from the public internet ------------
+
+
+def redirect_to(location: str) -> httpx.Response:
+    return httpx.Response(302, headers={"location": location})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://litellm:4000/health",  # Docker service name on sandbox_net
+        "http://proxy:3128/",
+        "http://localhost:8000/mcp",
+        "http://127.0.0.1:8000/mcp",  # litmcp itself
+        "http://10.1.2.3/paper.pdf",  # private ranges
+        "http://172.18.0.2/paper.pdf",
+        "http://192.168.1.1/paper.pdf",
+        "http://169.254.169.254/latest/meta-data/",  # cloud metadata (link-local)
+        "http://100.64.0.1/paper.pdf",  # carrier-grade NAT
+        "http://[::1]:8000/mcp",  # IPv6 loopback
+        "http://[fd00::1]/paper.pdf",  # IPv6 private
+        "https://internal.example/paper.pdf",  # public-looking name, private address
+        "https://metadata.example/paper.pdf",
+        "https://mixed.example/paper.pdf",  # any non-public address is enough
+        "https://mapped.example/paper.pdf",  # IPv4-mapped IPv6 of a private address
+        "file:///etc/passwd",  # non-http schemes
+        "ftp://publisher.example/paper.pdf",
+    ],
+)
+async def test_unsafe_open_access_url_is_never_requested(pdf_dir, serve, url):
+    requests = serve({})
+
+    with pytest.raises(ValueError, match="No open-access full text"):
+        await pdfs.fetch_pdf(make_paper(open_access_pdf=url, arxiv=None))
+
+    assert requests == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "location",
+    [
+        "http://litellm:4000/key/info",
+        "http://169.254.169.254/latest/meta-data/",
+        "https://internal.example/paper.pdf",
+        "file:///etc/passwd",
+    ],
+)
+async def test_redirect_to_unsafe_destination_is_not_followed(pdf_dir, serve, location):
+    requests = serve({OA_URL: redirect_to(location)})
+
+    with pytest.raises(ValueError, match="No open-access full text"):
+        await pdfs.fetch_pdf(make_paper(arxiv=None))
+
+    assert [str(r.url) for r in requests] == [OA_URL]  # only the first, safe hop
+
+
+@pytest.mark.asyncio
+async def test_unsafe_url_falls_back_to_arxiv(pdf_dir, serve):
+    requests = serve({ARXIV_URL: pdf_response()})
+
+    path = await pdfs.fetch_pdf(make_paper(open_access_pdf="http://litellm:4000/"))
+
+    assert path.read_bytes() == PDF
+    assert [r.url.host for r in requests] == ["arxiv.org"]
+
+
+@pytest.mark.asyncio
+async def test_safe_redirects_are_followed(pdf_dir, serve):
+    serve(
+        {
+            OA_URL: redirect_to("/moved/paper.pdf"),  # relative redirect
+            "https://publisher.example/moved/paper.pdf": redirect_to(
+                "https://cdn.example/paper.pdf"
+            ),
+            "https://cdn.example/paper.pdf": pdf_response(),
+        }
+    )
+
+    path = await pdfs.fetch_pdf(make_paper(arxiv=None))
+
+    assert path.read_bytes() == PDF
+
+
+@pytest.mark.asyncio
+async def test_redirect_loop_gives_up(pdf_dir, serve, monkeypatch):
+    monkeypatch.setattr(pdfs, "MAX_REDIRECTS", 3)
+    requests = serve({OA_URL: redirect_to(OA_URL)})
+
+    with pytest.raises(ValueError, match="No open-access full text"):
+        await pdfs.fetch_pdf(make_paper(arxiv=None))
+
+    assert len(requests) == 4  # the first request plus 3 redirects
+
+
+@pytest.mark.asyncio
+async def test_unresolvable_host_is_refused(pdf_dir, serve, monkeypatch):
+    async def failing_resolve(host, port):
+        raise OSError("Name or service not known")
+
+    monkeypatch.setattr(pdfs, "_resolve", failing_resolve)
+    requests = serve({})
+
+    with pytest.raises(ValueError, match="No open-access full text"):
+        await pdfs.fetch_pdf(make_paper(arxiv=None))
+
+    assert requests == []

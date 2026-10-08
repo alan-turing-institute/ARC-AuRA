@@ -6,8 +6,11 @@ academic literature accessible by agents.
 import asyncio
 import hashlib
 import io
+import ipaddress
 import json
+import logging
 import re
+import socket
 import time
 from pathlib import Path
 
@@ -15,8 +18,11 @@ import cache
 import httpx
 import pypdfium2 as pdfium
 
+logger = logging.getLogger(__name__)
+
 PDF_DIR = cache.CACHE_DIR / "pdfs"
 MAX_BYTES = 50 * 1024 * 1024  # 50 MB
+MAX_REDIRECTS = 5
 ARXIV_GAP = 3.0  # seconds between requests to arxiv.org (arXiv's published policy)
 # A caption starts a line with a label, a number and ":" or "." ("Figure 1: ...").
 # The separator is what tells it apart from body text like "Table 2 summarizes ..."
@@ -24,14 +30,74 @@ CAPTION = re.compile(r"^\s*(Figure|Fig\.|Table)\s*(S?\d+)\s*[:.]\s*(.*)", re.IGN
 MAX_CAPTION_CHARS = 150  # captions are a map of the paper, not its full text
 PAGE_IMAGE_WIDTH = 1200  # pixels: plot labels stay legible without a huge image
 
-# A separate client from s2.py, so the S2 API key is never sent to PDF hosts
+# A separate client from s2.py, so the S2 API key is never sent to PDF hosts.
+# Redirects are followed by hand in _read_body, so every hop can be checked by
+# _check_url before any request is sent.
 _headers = {
     "User-Agent": "ARC-AuRA-litmcp/0.1 (research agent sandbox; "
     "https://github.com/alan-turing-institute/ARC-AuRA)"
 }
-client = httpx.AsyncClient(follow_redirects=True, timeout=60, headers=_headers)
+client = httpx.AsyncClient(follow_redirects=False, timeout=60, headers=_headers)
 _arxiv_lock = asyncio.Lock()
 _last_arxiv = 0.0
+
+
+class UnsafeURLError(Exception):
+    """A PDF URL points somewhere litmcp must not send requests to."""
+
+
+async def _resolve(host: str, port: int) -> list[str]:
+    """Return every IP address host resolves to. Replaced in tests."""
+    infos = await asyncio.get_running_loop().getaddrinfo(
+        host, port, type=socket.SOCK_STREAM
+    )
+    return [info[4][0] for info in infos]
+
+
+async def _check_url(url: httpx.URL) -> None:
+    """
+    Refuse URLs that could reach anything other than the public internet.
+
+    PDF URLs come from Semantic Scholar data and publishers' redirects, so they are
+    untrusted. litmcp sits on the sandbox network, so without this check a URL (or a
+    redirect) could make it send requests to litellm, the proxy, itself, or other
+    private or cloud-metadata addresses (server-side request forgery).
+
+    Hosts with no dot (Docker service names like "litellm", or "localhost") are
+    refused outright, and every address the host resolves to must be public.
+
+    Known limitation: the address is resolved again when the request is sent, so a
+    DNS server that answers differently the second time ("DNS rebinding") could still
+    redirect it. Closing that fully would mean connecting to the checked address.
+
+    Raises:
+        UnsafeURLError: The URL is not http(s), or resolves to a non-public address.
+    """
+    if url.scheme not in ("http", "https"):
+        raise UnsafeURLError(f"scheme {url.scheme!r} not allowed: {url}")
+    host = url.host
+    try:
+        ipaddress.ip_address(host)
+        is_ip_literal = True
+    except ValueError:
+        is_ip_literal = False
+    if not host or (not is_ip_literal and "." not in host):
+        raise UnsafeURLError(f"internal host name not allowed: {url}")
+
+    try:
+        addresses = await _resolve(
+            host, url.port or (443 if url.scheme == "https" else 80)
+        )
+    except OSError as e:
+        raise UnsafeURLError(f"could not resolve {host}: {e}") from e
+    for address in addresses:
+        ip = ipaddress.ip_address(address.split("%")[0])  # drop IPv6 zone ids
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+            ip = ip.ipv4_mapped  # judge ::ffff:10.0.0.1 as 10.0.0.1
+        # is_global is False for private, loopback, link-local (incl. cloud
+        # metadata at 169.254.169.254), carrier-grade NAT, reserved and similar
+        if not ip.is_global:
+            raise UnsafeURLError(f"{host} resolves to non-public address {ip}: {url}")
 
 
 def _candidate_urls(paper: dict) -> list[str]:
@@ -47,26 +113,39 @@ def _candidate_urls(paper: dict) -> list[str]:
 async def _read_body(url: str) -> bytes | None:
     """GET url and return its body, or None on a non-2xx status or over MAX_BYTES.
 
-    The body is streamed in chunks, so an oversized download is abandoned as soon as
-    it passes MAX_BYTES instead of being loaded into memory first.
+    Redirects are followed here, up to MAX_REDIRECTS, checking each new URL with
+    _check_url before requesting it. The body is streamed in chunks, so an oversized
+    download is abandoned as soon as it passes MAX_BYTES.
+
+    Raises:
+        UnsafeURLError: The URL or a redirect points at a non-public address.
     """
-    async with client.stream("GET", url) as response:
-        if not response.is_success:
-            return None
-        chunks, total = [], 0
-        async for chunk in response.aiter_bytes():
-            total += len(chunk)
-            if total > MAX_BYTES:
+    current = httpx.URL(url)
+    for _ in range(MAX_REDIRECTS + 1):
+        await _check_url(current)
+        async with client.stream("GET", current) as response:
+            if response.is_redirect:
+                if not (location := response.headers.get("location")):
+                    return None
+                current = current.join(location)  # handles relative redirects
+                continue
+            if not response.is_success:
                 return None
-            chunks.append(chunk)
-    return b"".join(chunks)
+            chunks, total = [], 0
+            async for chunk in response.aiter_bytes():
+                total += len(chunk)
+                if total > MAX_BYTES:
+                    return None
+                chunks.append(chunk)
+            return b"".join(chunks)
+    return None  # too many redirects
 
 
 async def _download(url: str) -> bytes | None:
     """Download url; return the bytes if it's a real PDF under MAX_BYTES, else None."""
     global _last_arxiv
     try:
-        if "arxiv.org" in url:
+        if httpx.URL(url).host == "arxiv.org":
             async with _arxiv_lock:
                 wait = ARXIV_GAP - (time.monotonic() - _last_arxiv)
                 if wait > 0:
@@ -77,7 +156,10 @@ async def _download(url: str) -> bytes | None:
                     _last_arxiv = time.monotonic()
         else:
             data = await _read_body(url)
-    except httpx.HTTPError:  # timeout, dropped connection, too many redirects, etc.
+    except httpx.HTTPError:  # timeout, dropped connection, malformed URL, etc.
+        return None
+    except UnsafeURLError as e:
+        logger.warning("Refused PDF URL: %s", e)
         return None
 
     # Every PDF starts with "%PDF"; this catches HTML login pages served as "PDFs".
