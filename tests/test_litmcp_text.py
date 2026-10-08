@@ -1,6 +1,7 @@
 """Tests for reading text, finding captions and rendering pages in litmcp/pdfs.py."""
 
 import io
+import math
 
 import pdfs
 import pytest
@@ -138,3 +139,69 @@ def test_render_page_rejects_pages_outside_document(tmp_path, make_pdf):
     for page in (0, 2):
         with pytest.raises(ValueError, match="this paper has 1 pages"):
             pdfs.render_page(path, page)
+
+
+# --- render_page size limits: untrusted PDFs can declare any page size ----------
+
+
+def render_size(tmp_path, make_pdf, size, rotate=0, **kwargs) -> tuple[int, int]:
+    path = tmp_path / "paper.pdf"
+    path.write_bytes(make_pdf([["Text"]], size=size, rotate=rotate))
+    with Image.open(io.BytesIO(pdfs.render_page(path, 1, **kwargs))) as image:
+        return image.size
+
+
+def assert_within_limits(width: int, height: int) -> None:
+    assert width <= pdfs.PAGE_IMAGE_WIDTH
+    assert height <= pdfs.MAX_PAGE_IMAGE_HEIGHT
+    assert width * height <= pdfs.MAX_PAGE_IMAGE_PIXELS
+
+
+def test_ordinary_page_is_full_width(tmp_path, make_pdf):
+    width, height = render_size(tmp_path, make_pdf, (595, 842))  # A4
+
+    assert width == pdfs.PAGE_IMAGE_WIDTH
+    assert height < pdfs.MAX_PAGE_IMAGE_HEIGHT
+
+
+def test_tall_thin_page_is_capped_in_height(tmp_path, make_pdf):
+    # Fitting 100 x 14400 points to 1200 px wide would be 172,800 px tall
+    width, height = render_size(tmp_path, make_pdf, (100, 14400))
+
+    assert_within_limits(width, height)
+    assert height >= pdfs.MAX_PAGE_IMAGE_HEIGHT - 1  # scaled to the height cap
+
+
+def test_huge_page_is_capped_in_pixels(tmp_path, make_pdf):
+    width, height = render_size(tmp_path, make_pdf, (200000, 200000))
+
+    assert_within_limits(width, height)
+
+
+def test_large_requested_width_is_still_capped(tmp_path, make_pdf):
+    width, height = render_size(tmp_path, make_pdf, (612, 792), width=100_000)
+
+    assert width * height <= pdfs.MAX_PAGE_IMAGE_PIXELS
+    assert height <= pdfs.MAX_PAGE_IMAGE_HEIGHT
+
+
+def test_rotated_page_uses_its_displayed_shape(tmp_path, make_pdf):
+    width, height = render_size(tmp_path, make_pdf, (612, 792), rotate=90)
+
+    assert width == pdfs.PAGE_IMAGE_WIDTH
+    assert height < width  # landscape once rotated
+
+
+@pytest.mark.parametrize("size", [(1, 14400), (14400, 1)])
+def test_extreme_shapes_are_refused_not_rendered(tmp_path, make_pdf, size):
+    with pytest.raises(ValueError, match="too extreme a shape"):
+        render_size(tmp_path, make_pdf, size)
+
+
+@pytest.mark.parametrize(
+    ("page_width", "page_height"),
+    [(0, 792), (612, 0), (-612, 792), (math.nan, 792), (612, math.inf)],
+)
+def test_invalid_page_sizes_are_refused(page_width, page_height):
+    with pytest.raises(ValueError, match="invalid size"):
+        pdfs._render_scale(page_width, page_height, pdfs.PAGE_IMAGE_WIDTH)

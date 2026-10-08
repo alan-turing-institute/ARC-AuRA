@@ -3,8 +3,13 @@
 import pytest
 
 
-def _make_pdf(pages: list[list[str]]) -> bytes:
+def _make_pdf(
+    pages: list[list[str]], size: tuple[float, float] = (612, 792), rotate: int = 0
+) -> bytes:
     """Build a minimal PDF with one line of Helvetica text per string, per page.
+
+    `size` is the page's (width, height) in points (default US Letter) and `rotate`
+    its /Rotate angle, for testing unusual page shapes.
 
     Hand-writing the PDF keeps the test free of binary fixtures and PDF-writing
     libraries. Each object's byte offset is recorded for the cross-reference table.
@@ -20,9 +25,9 @@ def _make_pdf(pages: list[list[str]]) -> bytes:
         ops = b"BT /F1 12 Tf 72 720 Td 14 TL "
         ops += b"".join(b"(%s) Tj T* " % line.encode() for line in lines) + b"ET"
         objects[page_id] = (
-            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %s %s] /Rotate %d "
             b"/Resources << /Font << /F1 3 0 R >> >> /Contents %d 0 R >>"
-            % (page_id + 1)
+            % (str(size[0]).encode(), str(size[1]).encode(), rotate, page_id + 1)
         )
         objects[page_id + 1] = b"<< /Length %d >>\nstream\n%s\nendstream" % (
             len(ops),

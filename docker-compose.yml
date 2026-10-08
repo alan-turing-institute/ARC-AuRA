@@ -43,6 +43,10 @@ services:
       S2_API_KEY: ${S2_API_KEY:-}
     volumes: ["./litmcp/cache:/cache"]
     networks: [sandbox_net, egress_net]
+    # Only what entrypoint.sh needs to hand /cache to the right user and drop root
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID]
+    security_opt: ["no-new-privileges:true"]
 
   proxy:
     image: ubuntu/squid:7.2-26.04_edge

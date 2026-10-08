@@ -9,6 +9,7 @@ import io
 import ipaddress
 import json
 import logging
+import math
 import re
 import socket
 import time
@@ -29,6 +30,11 @@ ARXIV_GAP = 3.0  # seconds between requests to arxiv.org (arXiv's published poli
 CAPTION = re.compile(r"^\s*(Figure|Fig\.|Table)\s*(S?\d+)\s*[:.]\s*(.*)", re.IGNORECASE)
 MAX_CAPTION_CHARS = 150  # captions are a map of the paper, not its full text
 PAGE_IMAGE_WIDTH = 1200  # pixels: plot labels stay legible without a huge image
+# Hard limits on rendered images, whatever page size an (untrusted) PDF declares.
+# A4/Letter at 1200 px wide is ~1700 px tall, so ordinary pages are unaffected.
+MAX_PAGE_IMAGE_HEIGHT = 4000  # pixels
+MAX_PAGE_IMAGE_PIXELS = PAGE_IMAGE_WIDTH * MAX_PAGE_IMAGE_HEIGHT  # ~19 MB as RGBA
+MIN_PAGE_IMAGE_SIDE = 16  # pixels: anything thinner is unreadable anyway
 
 # A separate client from s2.py, so the S2 API key is never sent to PDF hosts.
 # Redirects are followed by hand in _read_body, so every hop can be checked by
@@ -260,23 +266,71 @@ def find_captions(texts: list[str]) -> list[dict]:
     return captions
 
 
+def _render_scale(page_width: float, page_height: float, width: int) -> float:
+    """
+    Choose the render scale for a page of the given size in points (1/72 inch).
+
+    Aims for `width` pixels wide, but scales down further if that would break
+    MAX_PAGE_IMAGE_HEIGHT or MAX_PAGE_IMAGE_PIXELS. The page size comes from an
+    untrusted PDF: fitting a 1 x 14400 point page to 1200 px wide would otherwise
+    mean a 17-million-pixel-tall bitmap and exhaust memory during rendering.
+
+    Raises:
+        ValueError: The page has no usable size, or is too extreme a shape to render
+            legibly within the limits.
+    """
+    if not (
+        math.isfinite(page_width)
+        and math.isfinite(page_height)
+        and page_width > 0
+        and page_height > 0
+    ):
+        raise ValueError(f"Page has an invalid size ({page_width} x {page_height}).")
+    scale = min(
+        width / page_width,
+        MAX_PAGE_IMAGE_HEIGHT / page_height,
+        math.sqrt(MAX_PAGE_IMAGE_PIXELS / (page_width * page_height)),
+    )
+
+    def fits(s: float) -> bool:
+        # pdfium rounds each side up to whole pixels, so check the rounded-up size
+        w, h = math.ceil(page_width * s), math.ceil(page_height * s)
+        return (
+            w <= width and h <= MAX_PAGE_IMAGE_HEIGHT and w * h <= MAX_PAGE_IMAGE_PIXELS
+        )
+
+    while not fits(scale):  # at most a few steps: only rounding can overshoot
+        scale *= 0.999
+
+    if min(page_width, page_height) * scale < MIN_PAGE_IMAGE_SIDE:
+        raise ValueError(
+            f"Page is too extreme a shape to render ({page_width:.0f} x "
+            f"{page_height:.0f} points); use read_pages for its text instead."
+        )
+    return scale
+
+
 def render_page(path: Path, page: int, width: int = PAGE_IMAGE_WIDTH) -> bytes:
     """
     Render one page of a PDF as a PNG image.
 
     The whole page is rendered rather than extracting figure images, because plots in
-    PDFs are often vector drawings with no embedded image to extract.
+    PDFs are often vector drawings with no embedded image to extract. The image is at
+    most `width` pixels wide, MAX_PAGE_IMAGE_HEIGHT tall and MAX_PAGE_IMAGE_PIXELS in
+    total, whatever page size the PDF declares (see _render_scale).
 
     Args:
         path: The PDF file.
         page: Page number, 1-based.
-        width: Width of the image in pixels; height follows the page's aspect ratio.
+        width: Target width of the image in pixels; height follows the page's aspect
+            ratio, within the limits above.
 
     Returns:
         The PNG file contents.
 
     Raises:
-        ValueError: The page number is outside the document.
+        ValueError: The page number is outside the document, or the page's size can't
+            be rendered within the limits.
     """
     with pdfium.PdfDocument(path) as pdf:
         if not 1 <= page <= len(pdf):
@@ -285,7 +339,8 @@ def render_page(path: Path, page: int, width: int = PAGE_IMAGE_WIDTH) -> bytes:
                 "numbered from 1."
             )
         pdf_page = pdf[page - 1]
-        scale = width / pdf_page.get_width()  # PDF widths are in points (1/72 inch)
+        # get_width/get_height account for the page's /Rotate, i.e. the shape rendered
+        scale = _render_scale(pdf_page.get_width(), pdf_page.get_height(), width)
         image = pdf_page.render(scale=scale).to_pil()
     buffer = io.BytesIO()
     image.save(buffer, format="PNG", optimize=True)
