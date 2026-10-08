@@ -9,25 +9,16 @@ from datetime import datetime
 from pathlib import Path
 
 from aura.constants import AGENT_TAG, PROJECT_ROOT
+from aura.harnesses import HARNESSES
 from aura.task import build_prompt
 
 
-def claude_code_command(prompt: str, model: str) -> list[str]:
-    """Build a headless Claude Code command."""
-    return [
-        "claude", "-p", prompt, "--model", model,
-        "--output-format", "json", "--dangerously-skip-permissions",
-    ]  # fmt: skip
-
-
-HARNESSES = {"claude-code": claude_code_command}
-
-
 def make_run_dir(task: str) -> Path:
-    """Create a fresh run folder containing an empty workspace."""
+    """Create a fresh run folder with empty `workspace` and `task` folders."""
     run_id = f"{datetime.now():%Y%m%d-%H%M%S}-{task}-{random.randrange(32768)}"
     run_dir = PROJECT_ROOT / "runs" / run_id
-    (run_dir / "workspace").mkdir(parents=True)
+    for name in ("workspace", "task"):
+        (run_dir / name).mkdir(parents=True)
     return run_dir
 
 
@@ -62,6 +53,7 @@ def run(task: str, harness: str, model: str, tier: int) -> None:
     prompt = build_prompt(task, tier)
     command = HARNESSES[harness](prompt, model)
     run_dir = make_run_dir(task)
+    (run_dir / "task" / "TASK.md").write_text(prompt)
     config = {
         "image": f"research-sandbox:{AGENT_TAG}",
         "task": task,
