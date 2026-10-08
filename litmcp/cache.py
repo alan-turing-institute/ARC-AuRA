@@ -54,8 +54,6 @@ def put(key: str, tool: str, args: dict[str, Any], result: Any) -> None:
     Store a result in the cache.
 
     The request is stored alongside the result so cache files can be inspected by hand.
-    The file is written to a temporary name and then renamed, so a concurrent reader
-    never sees a half-written file.
 
     Args:
         key: Key from `key_for`.
@@ -63,18 +61,38 @@ def put(key: str, tool: str, args: dict[str, Any], result: Any) -> None:
         args: The arguments the key was built from.
         result: The JSON-serialisable result to store.
     """
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
     entry = {
         "tool": tool,
         "args": args,
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "fetched_at": now(),
         "result": result,
     }
-    fd, tmp = tempfile.mkstemp(dir=CACHE_DIR, suffix=".tmp")
+    write_atomic(CACHE_DIR / f"{key}.json", json.dumps(entry, indent=2).encode())
+
+
+def write_atomic(path: Path, data: bytes) -> None:
+    """
+    Write bytes to a file so that readers never see it half-written.
+
+    The data goes to a temporary file in the same folder, which is then renamed over
+    the target in one step. Concurrent agents therefore see either no file or the
+    complete one.
+
+    Args:
+        path: Destination file. Its folder is created if needed.
+        data: The bytes to write.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     try:
-        with os.fdopen(fd, "w") as f:
-            json.dump(entry, f, indent=2)
-        os.replace(tmp, CACHE_DIR / f"{key}.json")
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp, path)
     except BaseException:
         os.unlink(tmp)
         raise
+
+
+def now() -> str:
+    """Current UTC time as an ISO 8601 string, for `fetched_at` fields."""
+    return datetime.now(timezone.utc).isoformat()

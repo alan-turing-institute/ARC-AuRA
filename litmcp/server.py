@@ -115,5 +115,20 @@ async def get_citations(paper_id: str, limit: int = 20) -> list[dict]:
     return result
 
 
+@mcp.tool()
+async def get_fulltext_info():
+    pass
+
+
+@mcp.tool()
+async def read_pages():
+    pass
+
+
+@mcp.tool()
+async def get_page_image():
+    pass
+
+
 if __name__ == "__main__":
     mcp.run(transport="streamable-http", host="0.0.0.0", port=8000, stateless_http=True)
