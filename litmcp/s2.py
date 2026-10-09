@@ -6,6 +6,7 @@ See https://www.semanticscholar.org/product/api. Caching is handled by the calle
 import asyncio
 import os
 import time
+from urllib.parse import quote
 
 import httpx
 
@@ -166,12 +167,24 @@ async def search_papers(
     return [_trim(paper) for paper in data.get("data") or []]
 
 
+def _paper_path(paper_id: str, endpoint: str = "") -> str:
+    """
+    Build the API path for a paper, e.g. "/paper/DOI%3A10.1109%2Fcvpr.2016.90".
+
+    The id is percent-encoded as a single path segment, "/" and ":" included. DOIs
+    may legally contain "?", "#", "%" and similar, which would otherwise end the path
+    early or start a query or fragment; and an id containing "/../" could otherwise
+    reach a different API endpoint. Semantic Scholar decodes the id back as normal.
+    """
+    return f"/paper/{quote(paper_id, safe='')}{endpoint}"
+
+
 async def get_paper(paper_id: str) -> dict:
     """
     Get a paper by its paper_id using the Semantic Scholar API.
     """
     params = {"fields": FIELDS + ",abstract,openAccessPdf"}
-    data = await _get(f"/paper/{paper_id}", params)
+    data = await _get(_paper_path(paper_id), params)
     return _trim(data, with_abstract=True)
 
 
@@ -180,6 +193,6 @@ async def get_citations(paper_id: str, limit: int = 20) -> list[dict]:
     Get the citations for a paper by its paper_id using the Semantic Scholar API.
     """
     params = {"limit": limit, "fields": FIELDS}
-    data = await _get(f"/paper/{paper_id}/citations", params)
+    data = await _get(_paper_path(paper_id, "/citations"), params)
     citing = [citation.get("citingPaper") for citation in data.get("data") or []]
     return [_trim(paper) for paper in citing if paper]
