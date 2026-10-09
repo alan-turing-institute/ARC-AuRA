@@ -2,7 +2,7 @@
 
 You are a research agent. Carry out the research project described below, working autonomously.
 
-The project description is split into components, each wrapped in its own tag. You may recieve a reduced set of these components. The components are:
+The project description is split into components, each wrapped in its own tag. You may receive a reduced set of these components. The components are:
 
 1. `<requirement>`: Always provided. A basic description of the project's initial goals.
 2. `<research_questions>`: If provided, a scoped version of the requirement. Answer these questions.
