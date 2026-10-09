@@ -78,7 +78,7 @@ Agents run in throwaway Docker containers with no internet access. Each run gets
 | `litellm` | `litellm/config.yaml` | Model gateway. Holds API keys and forwards model calls; agents only get a gateway key. |
 | `proxy` | `proxy/squid.conf` | Manages agent website access. |
 | `litmcp` | `litmcp/` | Literature MCP server. Searches Semantic Scholar and serves open-access paper text and page images to agents, caching every result in `litmcp/cache/`. Holds the Semantic Scholar key; agents only reach it over the sandbox network. |
-| `mcp.json` | repo root | MCP config that `run.sh` copies into each run's workspace as `.mcp.json`, pointing the agent at `litmcp`. |
+| `mcp.json` | repo root | MCP config pointing the agent at `litmcp`. `aura run` passes it to Claude Code with `--mcp-config`. |
 | `.env` | repo root | Agent image tag. Increment it whenever the image changes to keep old images cached. |
 | `scripts/` | | `build.sh` builds the agent image. |
 | `aura run` | `src/aura/` | Assembles a task prompt and runs it in a fresh agent container. |
@@ -159,11 +159,6 @@ colima stop
 Tasks are run with `aura run`:
 
 ```bash
-### Running a task
-
-Tasks are run with `aura run`:
-
-```bash
 aura run <task> [--harness claude-code] [--model claude-haiku-4-5] [--task-tier 1]
 ```
 
@@ -177,7 +172,7 @@ The task is passed to the agent inline in its prompt and also mounted read-only 
 
 - `workspace/`: everything the agent wrote
 - `task/TASK.md`: the task exactly as the agent received it
-- `log.txt`: full output
+- `log.txt`: full output, with one JSON event per line for each agent step (tool calls, results, final summary)
 - `run_config.json`: image tag, options and the full harness command
 
 Inside the container, the agent can read `/skills` and `/task` (read-only) and write to `/workspace`.
@@ -213,7 +208,7 @@ Every run gets the literature server's tools (Claude Code names them `mcp__liter
 
 Results are cached in `litmcp/cache/` (PDFs in `litmcp/cache/pdfs/`), so repeated questions get identical answers without calling Semantic Scholar again. Delete the folder to start fresh. Figure reading via `get_page_image` relies on the model being multimodal.
 
-To see which tools an agent called, run it with `--output-format stream-json --verbose` instead of `--output-format json`, then:
+To see which literature tools an agent called:
 
 ```bash
 grep -o 'mcp__literature__[a-z_]*' runs/<run>/log.txt | sort | uniq -c

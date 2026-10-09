@@ -14,7 +14,15 @@ from aura.task import build_prompt
 
 
 def make_run_dir(task: str) -> Path:
-    """Create a fresh run folder with empty `workspace` and `task` folders."""
+    """
+    Create a fresh run folder with empty `workspace` and `task` folders.
+
+    Args:
+        task: Name of the task, used in the run ID.
+
+    Returns:
+        Path to `runs/<timestamp>-<task>-<n>/`.
+    """
     run_id = f"{datetime.now():%Y%m%d-%H%M%S}-{task}-{random.randrange(32768)}"
     run_dir = PROJECT_ROOT / "runs" / run_id
     for name in ("workspace", "task"):
@@ -23,7 +31,16 @@ def make_run_dir(task: str) -> Path:
 
 
 def compose_run(command: list[str], run_dir: Path) -> None:
-    """Run a command in a fresh agent container, copying output to `log.txt`."""
+    """
+    Run a command in a fresh agent container, copying output to `log.txt`.
+
+    Args:
+        command: Harness command to run inside the container.
+        run_dir: Run folder whose `workspace` and `task` folders are mounted.
+
+    Raises:
+        subprocess.CalledProcessError: If the container exits with an error.
+    """
     env = {
         **os.environ,
         "RUN_DIR": str(run_dir),
@@ -50,6 +67,15 @@ def compose_run(command: list[str], run_dir: Path) -> None:
 
 
 def run(task: str, harness: str, model: str, tier: int) -> None:
+    """
+    Build a task prompt, record the run's settings and run it in the sandbox.
+
+    Args:
+        task: Name of a folder in `tasks/`.
+        harness: Key of `HARNESSES` naming the agent harness.
+        model: Model name as configured in the LiteLLM gateway.
+        tier: Number of task sections to include, in order.
+    """
     prompt = build_prompt(task, tier)
     command = HARNESSES[harness](prompt, model)
     run_dir = make_run_dir(task)
