@@ -37,15 +37,24 @@ dependencies = []
 dev = [
   { include-group = "test" },
   { include-group = "lint" },
+  { include-group = "litmcp" },
   "pre-commit>=4.0",
 ]
 test = [
   "pytest>=8.0",
+  "pytest-asyncio>=1.4.0",
   "pytest-cov>=6.0",
 ]
 lint = [
   "ruff>=0.15",
   "ty>=0.0.1a7",
+]
+# Mirrors litmcp/requirements.txt, so the litmcp tests can run on the host
+litmcp = [
+  "httpx==0.28.1",
+  "mcp==2.3.0",
+  "pypdfium2==5.14.0",
+  "pillow==12.3.0"
 ]
 
 [project.urls]
@@ -65,6 +74,8 @@ log_cli_level = "INFO"
 testpaths = [
   "tests",
 ]
+pythonpath = ["litmcp"]  # litmcp modules import each other by bare name (import s2)
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.coverage]
 run.source = ["aura"]

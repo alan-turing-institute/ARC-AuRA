@@ -77,8 +77,10 @@ Agents run in throwaway Docker containers with no internet access. Each run gets
 | `agent` | `agent/Dockerfile` | Image the harness runs in (Claude Code + Python stack). One fresh container per run; sandbox network only. |
 | `litellm` | `litellm/config.yaml` | Model gateway. Holds API keys and forwards model calls; agents only get a gateway key. |
 | `proxy` | `proxy/squid.conf` | Manages agent website access. |
+| `litmcp` | `litmcp/` | Literature MCP server. Searches Semantic Scholar and serves open-access paper text and page images to agents, caching every result in `litmcp/cache/`. Holds the Semantic Scholar key; agents only reach it over the sandbox network. |
+| `mcp.json` | repo root | MCP config that `run.sh` copies into each run's workspace as `.mcp.json`, pointing the agent at `litmcp`. |
 | `.env` | repo root | Agent image tag. Increment it whenever the image changes to keep old images cached. |
-| `scripts/` | | `build.sh` builds the agent image; `run.sh` runs one task. |
+| `scripts/` | | `build.sh` builds the agent and litmcp images; `run.sh` runs one task. |
 
 ### First time setup
 
@@ -92,7 +94,32 @@ export LITELLM_MASTER_KEY="sk-<output of: openssl rand -hex 24>"
 
 Note the last of these is required across all models.
 
-2. Build the agent docker image:
+2. Get a Semantic Scholar API key for the literature server (`litmcp`). It works without one, but unauthenticated requests share a public rate limit and are often refused with HTTP 429.
+
+   1. Make a few unauthenticated requests first, as the application form asks whether you have. For example:
+
+      ```bash
+      curl -s "https://api.semanticscholar.org/graph/v1/paper/search?query=transformers&limit=1&fields=title"
+      ```
+
+      If this returns `Too Many Requests`, wait a minute and try again.
+
+   2. Apply at <https://www.semanticscholar.org/product/api#api-key-form>. The endpoints used are `/graph/v1/paper/search`, `/graph/v1/paper/{paper_id}` and `/graph/v1/paper/{paper_id}/citations`. Results are cached, so a few thousand requests per day is plenty.
+
+   3. Once the key arrives by email, add it to `~/.zshrc` with your other keys, then run `source ~/.zshrc`. Never put it in the repo's `.env`, which is committed.
+
+      ```bash
+      export S2_API_KEY="<semantic scholar key>"
+      ```
+
+   4. Check the key is accepted. This should print `200`:
+
+      ```bash
+      curl -s -o /dev/null -w '%{http_code}\n' -H "x-api-key: $S2_API_KEY" \
+        "https://api.semanticscholar.org/graph/v1/paper/search?query=transformers&limit=1"
+      ```
+
+3. Build the docker images (the agent and litmcp):
 
 ```bash
 ./scripts/build.sh
@@ -109,8 +136,8 @@ colima start
 2. Startup the modelgateway and proxy and verify they are running. If using Colima, start it first with `colima start` (skip this if it is already running; check with `colima status`).
 
 ```bash
-docker compose up -d litellm proxy   # start gateway and proxy
-docker compose ps                    # both should be running
+docker compose up -d litellm proxy litmcp   # start gateway, proxy and literature server
+docker compose ps                           # all three should be running
 ```
 
 3. Once finished for the day, shut everything down aferwards with:
@@ -148,6 +175,27 @@ Each run creates `runs/<timestamp>-<task>-<n>/` containing:
 
 Inside the container, the agent can read `/data` and `/skills` (read-only) and write to `/workspace`.
 
+### Literature tools
+
+Every run gets the literature server's tools (Claude Code names them `mcp__literature__<tool>`):
+
+| Tool | Purpose |
+|---|---|
+| `search_papers` | Search Semantic Scholar by query, optionally filtered by year and venue |
+| `get_paper` | Metadata and abstract for a paper (by Semantic Scholar id, `DOI:<doi>` or `ARXIV:<id>`) |
+| `get_citations` | Papers citing a given paper |
+| `get_fulltext_info` | Page count and figure/table captions with their pages, for papers with an open-access PDF |
+| `read_pages` | Text of a range of pages (up to 10 per call) |
+| `get_page_image` | One page as an image, for reading figures and plots |
+
+Results are cached in `litmcp/cache/` (PDFs in `litmcp/cache/pdfs/`), so repeated questions get identical answers without calling Semantic Scholar again. Delete the folder to start fresh. Figure reading via `get_page_image` relies on the model being multimodal.
+
+To see which tools an agent called, run it with `--output-format stream-json --verbose` instead of `--output-format json`, then:
+
+```bash
+grep -o 'mcp__literature__[a-z_]*' runs/<run>/log.txt | sort | uniq -c
+```
+
 ### Making changes
 
 If making changes to the sandbox, some files require extra changes being made elsewhere:
@@ -156,7 +204,8 @@ If making changes to the sandbox, some files require extra changes being made el
 |---|---|
 | `agent/Dockerfile` or `agent/requirements.txt` | increment `AGENT_TAG` in `.env`, then run `./scripts/build.sh` |
 | `litellm/config.yaml` | run `docker compose restart litellm` |
-| Keys in `~/.zshrc` | run `source ~/.zshrc`, then `docker compose up -d litellm` |
+| Anything in `litmcp/` | run `./scripts/build.sh`, then `docker compose up -d litmcp` (and `uv sync` if `litmcp/requirements.txt` changed; keep it in step with the `litmcp` group in `pyproject.toml`) |
+| Keys in `~/.zshrc` | run `source ~/.zshrc`, then `docker compose up -d litellm litmcp` |
 
 ### Rules
 
@@ -204,7 +253,24 @@ RUN_DIR="$TMPDIR" docker compose run --rm -T agent ls /tmp/marker
 
 # 11. Foundry not reachable directly → connection error or timeout (Foundry models only)
 RUN_DIR="$TMPDIR" docker compose run --rm -T agent curl --noproxy '*' --max-time 5 https://<resource-name>.services.ai.azure.com
+
+# 12. Literature server reachable → a list of tool names (search_papers, get_paper, ...)
+RUN_DIR="$TMPDIR" docker compose run --rm -T agent curl -s -X POST http://litmcp:8000/mcp \
+  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | grep -o '"name":"[a-z_]*"'
+
+# 13. Semantic Scholar not reachable directly → "Could not resolve host" or timeout
+RUN_DIR="$TMPDIR" docker compose run --rm -T agent curl -sS --noproxy '*' --max-time 5 https://api.semanticscholar.org
+
+# 14. arXiv not reachable via proxy → "CONNECT tunnel failed, response 403"
+RUN_DIR="$TMPDIR" docker compose run --rm -T agent curl -sS -o /dev/null https://arxiv.org
+
+# 15. Semantic Scholar key not inside → 0
+RUN_KEY="$LITELLM_MASTER_KEY" RUN_DIR="$TMPDIR" docker compose run --rm -T agent env \
+  | grep -c -F -e "${S2_API_KEY:?set S2_API_KEY first}"
 ```
+
+Checks 12–14 confirm that agents get literature only through `litmcp`, not directly from the internet.
 
 ## License
 
