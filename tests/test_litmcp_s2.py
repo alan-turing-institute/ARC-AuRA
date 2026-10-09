@@ -4,6 +4,7 @@ import asyncio
 import heapq
 import itertools
 from types import SimpleNamespace
+from urllib.parse import unquote
 
 import httpx
 import pytest
@@ -255,3 +256,67 @@ async def test_client_errors_raise_s2_message_without_retrying(
     assert isinstance(result, ValueError)
     assert str(result) == message
     assert len(sent) == 1
+
+
+# --- Paper ids are sent as one encoded path segment ---------------------------------
+
+RESERVED_IDS = [
+    "DOI:10.1000/abc#def",  # "#" would start a fragment
+    "DOI:10.1000/abc?x=1",  # "?" would start a query
+    "DOI:10.1000/50%off",  # "%" would start an escape
+    "DOI:10.1002/(SICI)1097-4636(199706)35:3<329::AID-JBM7>3.0.CO;2-K",  # real SICI DOI
+    "DOI:10.1000/with space",
+    "x/../../author/1",  # would otherwise walk to a different endpoint
+]
+
+
+@pytest.fixture
+def capture(monkeypatch):
+    """Answer every S2 request with an empty paper, recording the requests."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        body = {"data": []} if request.url.path.endswith("/citations") else {}
+        return httpx.Response(200, json=body)
+
+    monkeypatch.setattr(
+        s2,
+        "client",
+        httpx.AsyncClient(base_url=s2.BASE_URL, transport=httpx.MockTransport(handler)),
+    )
+    monkeypatch.setattr(s2, "MIN_GAP", 0)
+    monkeypatch.setattr(s2, "_lock", asyncio.Lock())
+    return seen
+
+
+def sent_id(request: httpx.Request, endpoint: str = "") -> str:
+    """The paper id as Semantic Scholar will decode it from the request path."""
+    raw = request.url.raw_path.decode().split("?")[0]
+    prefix = "/graph/v1/paper/"
+    assert raw.startswith(prefix)
+    assert raw.endswith(endpoint)
+    segment = raw[len(prefix) : len(raw) - len(endpoint)]
+    assert "/" not in segment  # one path segment: nothing can escape /paper/
+    return unquote(segment)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("paper_id", RESERVED_IDS)
+async def test_get_paper_sends_whole_id_with_reserved_characters(capture, paper_id):
+    await s2.get_paper(paper_id)
+
+    (request,) = capture
+    assert sent_id(request) == paper_id
+    assert set(request.url.params) == {"fields"}  # no query smuggled in via the id
+    assert not request.url.fragment
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("paper_id", RESERVED_IDS)
+async def test_get_citations_sends_whole_id_with_reserved_characters(capture, paper_id):
+    await s2.get_citations(paper_id, limit=5)
+
+    (request,) = capture
+    assert sent_id(request, "/citations") == paper_id
+    assert set(request.url.params) == {"fields", "limit"}
