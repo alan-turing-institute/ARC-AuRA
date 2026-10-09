@@ -11,6 +11,7 @@ name = "ARC-AuRA"
 version = "0.1.0"
 authors = [
   { name = "Phil Swatton", email = "pswtton@turing.ac.uk" },
+  { name = "Edmund Dable-Heath", email = "edablehath@turing.ac.uk" },
 ]
 description = "ARC project on research agents"
 readme = "README.md"
@@ -31,7 +32,12 @@ classifiers = [
   "Topic :: Scientific/Engineering",
   "Typing :: Typed",
 ]
-dependencies = []
+dependencies = [
+    "python-dotenv>=1.2.4",
+]
+
+[project.scripts]
+aura = "aura.cli:main"
 
 [dependency-groups]
 dev = [

@@ -78,9 +78,11 @@ Agents run in throwaway Docker containers with no internet access. Each run gets
 | `litellm` | `litellm/config.yaml` | Model gateway. Holds API keys and forwards model calls; agents only get a gateway key. |
 | `proxy` | `proxy/squid.conf` | Manages agent website access. |
 | `litmcp` | `litmcp/` | Literature MCP server. Searches Semantic Scholar and serves open-access paper text and page images to agents, caching every result in `litmcp/cache/`. Holds the Semantic Scholar key; agents only reach it over the sandbox network. |
-| `mcp.json` | repo root | MCP config that `run.sh` copies into each run's workspace as `.mcp.json`, pointing the agent at `litmcp`. |
+| `mcp.json` | repo root | MCP config pointing the agent at `litmcp`. `aura run` passes it to Claude Code with `--mcp-config`. |
 | `.env` | repo root | Agent image tag. Increment it whenever the image changes to keep old images cached. |
-| `scripts/` | | `build.sh` builds the agent and litmcp images; `run.sh` runs one task. |
+| `scripts/` | | `build.sh` builds the agent image. |
+| `aura run` | `src/aura/` | Assembles a task prompt and runs it in a fresh agent container. |
+| `tasks/` | | Task descriptions; see [Tasks](#tasks). |
 
 ### First time setup
 
@@ -154,26 +156,42 @@ colima stop
 
 ### Running a task
 
-Tasks are run with the `./scripts/run.sh` script:
+Tasks are run with `aura run`:
 
 ```bash
-./scripts/run.sh <task> <command...>
+aura run <task> [--harness claude-code] [--model claude-haiku-4-5] [--task-tier 1]
 ```
 
 For example:
 
 ```bash
-./scripts/run.sh dummy_task claude -p "Read /data/dummy_task.md and complete the task. Write results to /workspace/results." \
-  --output-format json --dangerously-skip-permissions
+aura run dummy_task
 ```
 
-Each run creates `runs/<timestamp>-<task>-<n>/` containing:
+The task is passed to the agent inline in its prompt and also mounted read-only at `/task/TASK.md`, so the agent can reread it. Each run creates `runs/<timestamp>-<task>-<n>/` containing:
 
 - `workspace/`: everything the agent wrote
-- `log.txt`: full output
-- `run_info.txt`: image tag, task and command
+- `task/TASK.md`: the task exactly as the agent received it
+- `log.txt`: full output, with one JSON event per line for each agent step (tool calls, results, final summary)
+- `run_config.json`: image tag, options and the full harness command
 
-Inside the container, the agent can read `/data` and `/skills` (read-only) and write to `/workspace`.
+Inside the container, the agent can read `/skills` and `/task` (read-only) and write to `/workspace`.
+
+### Tasks
+
+Each task is a folder in `tasks/` with one markdown file per tier:
+
+```
+tasks/
+  instructions.md            # shared prompt template; {task} is replaced by the task text
+  <task>/
+    requirement.md
+    research_questions.md
+    lit_review.md
+    instructions.md          # optional; overrides the shared template
+```
+
+Tiers are numbered and stack in order: 1 = requirement, 2 = + research questions, 3 = + lit review. For example, `--task-tier 2` includes `requirement.md` and `research_questions.md`. Each section is wrapped in tags named after its file (e.g. `<requirement>…</requirement>`), and the shared template explains what each one is. Only the files up to the chosen tier need to exist.
 
 ### Literature tools
 
@@ -190,7 +208,7 @@ Every run gets the literature server's tools (Claude Code names them `mcp__liter
 
 Results are cached in `litmcp/cache/` (PDFs in `litmcp/cache/pdfs/`), so repeated questions get identical answers without calling Semantic Scholar again. Delete the folder to start fresh. Figure reading via `get_page_image` relies on the model being multimodal.
 
-To see which tools an agent called, run it with `--output-format stream-json --verbose` instead of `--output-format json`, then:
+To see which literature tools an agent called:
 
 ```bash
 grep -o 'mcp__literature__[a-z_]*' runs/<run>/log.txt | sort | uniq -c
@@ -209,7 +227,7 @@ If making changes to the sandbox, some files require extra changes being made el
 
 ### Rules
 
-- Only use `--dangerously-skip-permissions` (in `run.sh`) inside the sandbox; the container is what makes it safe.
+- Only use `--dangerously-skip-permissions` (in `aura run`) inside the sandbox; the container is what makes it safe.
 - Never mount the Docker socket, your home folder or `~/.claude` into the agent container.
 - Never commit keys: store in global environment only.
 

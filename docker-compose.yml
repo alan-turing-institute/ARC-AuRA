@@ -2,7 +2,7 @@ services:
   agent:
     image: research-sandbox:${AGENT_TAG:?not set in .env}
     build: ./agent
-    profiles: ["run"]            # not started by 'up'; only by run.sh
+    profiles: ["run"]            # the agent is not started by 'docker compose up -d'; only by `aura run`
     networks: [sandbox_net]      # no internet route
     environment:
       ANTHROPIC_BASE_URL: http://litellm:4000
@@ -18,9 +18,9 @@ services:
       DISABLE_AUTOUPDATER: "1"
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
     volumes:
-      - ./data:/data:ro
       - ./skills:/skills:ro
       - ${RUN_DIR}/workspace:/workspace
+      - ${RUN_DIR}/task:/task:ro
     cpus: 4
     mem_limit: 16g
     pids_limit: 512
