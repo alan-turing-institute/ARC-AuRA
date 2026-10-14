@@ -19,12 +19,23 @@ MAX_PAGES_PER_READ = 10
 MAX_CHARS_PER_READ = 40_000  # keeps one read_pages result well inside model context
 
 
+def _cut_authors(paper: dict, max_authors: int) -> dict:
+    """Keep a paper's first max_authors authors, adding its total as author_count."""
+    authors = paper["authors"]
+    return {
+        **paper,
+        "authors": authors[: max(1, max_authors)],
+        "author_count": len(authors),
+    }
+
+
 @mcp.tool()
 async def search_papers(
     query: str,
     limit: int = 10,
     year: str | None = None,
     venue: str | None = None,
+    max_authors: int = 5,
 ) -> list[dict]:
     """
     Search for papers. This will first search through the cache to see if the paper
@@ -43,11 +54,12 @@ async def search_papers(
             ("2019", "2016-2020", "2018-").
             Defaults to None.
         venue: Venue name if known. Defaults to None.
+        max_authors: Number of authors listed per paper (at least 1). Defaults to 5.
 
     Returns:
         List of dictionaries containing the search results, with each dictionary
         representing a paper, containing a paper_id that can be passed to get_paper or
-        get_citations.
+        get_citations. author_count gives each paper's total number of authors.
     """
     # Construct arguments for the search functions
     args = {
@@ -56,28 +68,34 @@ async def search_papers(
         "year": year,
         "venue": venue,
     }
-    return await cache.get_or_fetch(
+    papers = await cache.get_or_fetch(
         "search_papers", args, lambda: s2.search_papers(**args)
     )
+    return [_cut_authors(paper, max_authors) for paper in papers]
 
 
 @mcp.tool()
-async def get_paper(paper_id: str) -> dict:
+async def get_paper(paper_id: str, max_authors: int = 5) -> dict:
     """
     Get a paper by its paper_id. This will first search through the cache to see if the
     paper has already been found, and then using Semantic Scholar.
 
     Args:
         paper_id: The unique identifier for the paper.
+        max_authors: Number of authors listed (at least 1). Defaults to 5.
     Returns:
         Metadata for the paper, with a dictionary containing the paper's details.
+        author_count gives the paper's total number of authors.
     """
     args = {"paper_id": paper_id.strip()}
-    return await cache.get_or_fetch("get_paper", args, lambda: s2.get_paper(**args))
+    paper = await cache.get_or_fetch("get_paper", args, lambda: s2.get_paper(**args))
+    return _cut_authors(paper, max_authors)
 
 
 @mcp.tool()
-async def get_citations(paper_id: str, limit: int = 20) -> list[dict]:
+async def get_citations(
+    paper_id: str, limit: int = 20, max_authors: int = 5
+) -> list[dict]:
     """
     Get the citations for a paper by its paper_id. This will first search through the
     cache to see if the citations have already been found, and then using Semantic
@@ -86,14 +104,17 @@ async def get_citations(paper_id: str, limit: int = 20) -> list[dict]:
     Args:
         paper_id: The unique identifier for the paper.
         limit: Maximum number of citing papers to return, clamped to 1-100.
+        max_authors: Number of authors listed per paper (at least 1). Defaults to 5.
     Returns:
         List of dictionaries containing the citations for the paper, with each dictionary
-        representing a citation.
+        representing a citation. author_count gives each paper's total number of
+        authors.
     """
     args = {"paper_id": paper_id.strip(), "limit": max(1, min(limit, 100))}
-    return await cache.get_or_fetch(
+    papers = await cache.get_or_fetch(
         "get_citations", args, lambda: s2.get_citations(**args)
     )
+    return [_cut_authors(paper, max_authors) for paper in papers]
 
 
 async def _paper_texts(paper_id: str) -> tuple[dict, list[str]]:

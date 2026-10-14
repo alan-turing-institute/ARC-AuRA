@@ -132,7 +132,7 @@ def _trim(raw: dict, with_abstract: bool = False) -> dict:
     paper = {
         "paper_id": raw.get("paperId"),
         "title": raw.get("title"),
-        "authors": [a.get("name") for a in (raw.get("authors") or [])[:5]],
+        "authors": [a.get("name") for a in raw.get("authors") or []],
         "year": raw.get("year"),
         "venue": raw.get("venue"),
         "citation_count": raw.get("citationCount"),
@@ -153,7 +153,19 @@ async def search_papers(
     query: str, limit: int = 10, year: str | None = None, venue: str | None = None
 ) -> list[dict]:
     """
-    Search for papers using the Semantic Scholar API.
+    Search for papers using the Semantic Scholar API. This is a thin client: it does not
+    cache results, and the caller should do so if needed.
+
+    Args:
+        query: The search query string.
+        limit: Maximum number of results to return, clamped to 1-50. Defaults to 10.
+        year: Year of publication if known. Defaults to None.
+        venue: Venue name if known. Defaults to None.
+
+    Returns:
+        List of dictionaries containing the search results, with each dictionary
+        representing a paper, containing a paper_id that can be passed to get_paper or
+        get_citations. author_count gives each paper's total number of authors.
     """
     params = {
         "query": query,
@@ -182,6 +194,12 @@ def _paper_path(paper_id: str, endpoint: str = "") -> str:
 async def get_paper(paper_id: str) -> dict:
     """
     Get a paper by its paper_id using the Semantic Scholar API.
+
+    Args:
+        paper_id: The unique identifier for the paper.
+    Returns:
+        Metadata for the paper, with a dictionary containing the paper's details.
+        author_count gives the paper's total number of authors.
     """
     params = {"fields": FIELDS + ",abstract,openAccessPdf"}
     data = await _get(_paper_path(paper_id), params)
@@ -191,6 +209,13 @@ async def get_paper(paper_id: str) -> dict:
 async def get_citations(paper_id: str, limit: int = 20) -> list[dict]:
     """
     Get the citations for a paper by its paper_id using the Semantic Scholar API.
+
+    Args:
+        paper_id: The unique identifier for the paper.
+        limit: Maximum number of citing papers to return, clamped to 1-100.
+    Returns:
+        List of dictionaries containing the citations for the paper, with each dictionary
+        representing a citation. author_count gives each paper's total number of authors.
     """
     params = {"limit": limit, "fields": FIELDS}
     data = await _get(_paper_path(paper_id, "/citations"), params)

@@ -32,6 +32,7 @@ PAGE_IMAGE_WIDTH = 1200
 MAX_PAGE_IMAGE_HEIGHT = 4000
 MAX_PAGE_IMAGE_PIXELS = PAGE_IMAGE_WIDTH * MAX_PAGE_IMAGE_HEIGHT
 MIN_PAGE_IMAGE_SIDE = 16
+EOF_SEARCH_BYTES = 2048
 
 _headers = {
     "User-Agent": "ARC-AuRA-litmcp/0.1 (research agent sandbox; "
@@ -42,7 +43,6 @@ _arxiv_lock = asyncio.Lock()
 _last_arxiv = 0.0
 _downloading = cache.KeyedLock()
 _pdfium_lock = threading.Lock()
-EOF_SEARCH_BYTES = 2048
 
 
 class UnsafeURLError(Exception):

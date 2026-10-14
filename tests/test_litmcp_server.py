@@ -148,7 +148,8 @@ async def test_concurrent_identical_searches_share_one_live_result(
         calls.append(args)
         for _ in range(20):  # yield, as a real request would
             await asyncio.sleep(0)
-        return [{"paper_id": f"result-of-call-{len(calls)}"}]
+        authors = [f"Author {i}" for i in range(7)]
+        return [{"paper_id": f"result-of-call-{len(calls)}", "authors": authors}]
 
     monkeypatch.setattr(server.s2, "search_papers", live_search)
 
@@ -160,3 +161,6 @@ async def test_concurrent_identical_searches_share_one_live_result(
 
     assert len(calls) == 1
     assert results[0] == results[1] == results[2]
+    (paper,) = results[0]
+    assert len(paper["authors"]) == 5  # the default max_authors
+    assert paper["author_count"] == 7
