@@ -26,20 +26,14 @@ PDF_DIR = cache.CACHE_DIR / "pdfs"
 MAX_BYTES = 50 * 1024 * 1024  # 50 MB
 MAX_REDIRECTS = 5
 ARXIV_GAP = 3.0  # seconds between requests to arxiv.org (arXiv's published policy)
-# A caption starts a line with a label, a number and ":" or "." ("Figure 1: ...").
-# The separator is what tells it apart from body text like "Table 2 summarizes ..."
 CAPTION = re.compile(r"^\s*(Figure|Fig\.|Table)\s*(S?\d+)\s*[:.]\s*(.*)", re.IGNORECASE)
-MAX_CAPTION_CHARS = 150  # captions are a map of the paper, not its full text
-PAGE_IMAGE_WIDTH = 1200  # pixels: plot labels stay legible without a huge image
-# Hard limits on rendered images, whatever page size an (untrusted) PDF declares.
-# A4/Letter at 1200 px wide is ~1700 px tall, so ordinary pages are unaffected.
-MAX_PAGE_IMAGE_HEIGHT = 4000  # pixels
-MAX_PAGE_IMAGE_PIXELS = PAGE_IMAGE_WIDTH * MAX_PAGE_IMAGE_HEIGHT  # ~19 MB as RGBA
-MIN_PAGE_IMAGE_SIDE = 16  # pixels: anything thinner is unreadable anyway
+MAX_CAPTION_CHARS = 150
+PAGE_IMAGE_WIDTH = 1200
+MAX_PAGE_IMAGE_HEIGHT = 4000
+MAX_PAGE_IMAGE_PIXELS = PAGE_IMAGE_WIDTH * MAX_PAGE_IMAGE_HEIGHT
+MIN_PAGE_IMAGE_SIDE = 16
+EOF_SEARCH_BYTES = 2048
 
-# A separate client from s2.py, so the S2 API key is never sent to PDF hosts.
-# Redirects are followed by hand in _read_body, so every hop can be checked by
-# _check_url before any request is sent.
 _headers = {
     "User-Agent": "ARC-AuRA-litmcp/0.1 (research agent sandbox; "
     "https://github.com/alan-turing-institute/ARC-AuRA)"
@@ -47,11 +41,8 @@ _headers = {
 client = httpx.AsyncClient(follow_redirects=False, timeout=60, headers=_headers)
 _arxiv_lock = asyncio.Lock()
 _last_arxiv = 0.0
-_downloading = cache.KeyedLock()  # one download at a time per paper
-# PDFium isn't thread-safe, and pdfium work runs in threads (asyncio.to_thread) so it
-# doesn't block the server; this lock makes sure only one thread uses it at a time
+_downloading = cache.KeyedLock()
 _pdfium_lock = threading.Lock()
-EOF_SEARCH_BYTES = 2048  # "%%EOF" may be followed by a little whitespace or junk
 
 
 class UnsafeURLError(Exception):
@@ -157,7 +148,7 @@ async def _download(url: str) -> bytes | None:
     """Download url; return the bytes if it's a real PDF under MAX_BYTES, else None."""
     global _last_arxiv
     try:
-        if httpx.URL(url).host == "arxiv.org":
+        if "arxiv.org" in httpx.URL(url).host:
             async with _arxiv_lock:
                 wait = ARXIV_GAP - (time.monotonic() - _last_arxiv)
                 if wait > 0:
@@ -168,7 +159,8 @@ async def _download(url: str) -> bytes | None:
                     _last_arxiv = time.monotonic()
         else:
             data = await _read_body(url)
-    except httpx.HTTPError:  # timeout, dropped connection, malformed URL, etc.
+    # Timeout, dropped connection, malformed URL (InvalidURL isn't an HTTPError), etc.
+    except (httpx.HTTPError, httpx.InvalidURL):
         return None
     except UnsafeURLError as e:
         logger.warning("Refused PDF URL: %s", e)
@@ -215,7 +207,7 @@ async def fetch_pdf(paper: dict) -> Path:
     """
     Return the path to a paper's PDF, downloading and caching it on first use.
 
-    The PDF file itself is the cache: it is stored as `<paper_id>.pdf` using Semantic
+    The PDF file itself is cached here: it is stored as `<paper_id>.pdf` using Semantic
     Scholar's id, so a paper referred to by DOI, arXiv id or S2 id shares one file. A
     `.json` sidecar records where it came from and a hash of its contents. Failed
     downloads are not cached, so they are retried next time.
@@ -316,6 +308,11 @@ def _render_scale(page_width: float, page_height: float, width: int) -> float:
     MAX_PAGE_IMAGE_HEIGHT or MAX_PAGE_IMAGE_PIXELS. The page size comes from an
     untrusted PDF: fitting a 1 x 14400 point page to 1200 px wide would otherwise
     mean a 17-million-pixel-tall bitmap and exhaust memory during rendering.
+
+    Args:
+        page_width: Width of the page in points (1/72 inch).
+        page_height: Height of the page in points (1/72 inch).
+        width: Target width of the rendered image in pixels.
 
     Raises:
         ValueError: The page has no usable size, or is too extreme a shape to render
