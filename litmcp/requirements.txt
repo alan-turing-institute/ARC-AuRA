@@ -54,13 +54,13 @@ mcp-types==2.3.0
 opentelemetry-api==1.45.1
     # via mcp
 pillow==12.3.0
-pycparser==3.0 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
+pycparser==3.1 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
     # via cffi
-pydantic==2.13.5
+pydantic==2.14.0
     # via
     #   mcp
     #   mcp-types
-pydantic-core==2.46.5
+pydantic-core==2.50.0
     # via pydantic
 pyjwt==2.15.1
     # via mcp
