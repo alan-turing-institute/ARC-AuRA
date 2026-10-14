@@ -41,7 +41,7 @@ def _get(key: str) -> Any | None:
     Look up a cached result.
 
     Args:
-        key: Key from `key_for`.
+        key: Key from `_key_for`.
 
     Returns:
         The stored result, or None if there is no entry for this key.
@@ -52,14 +52,14 @@ def _get(key: str) -> Any | None:
     return json.loads(path.read_text())["result"]
 
 
-def put(key: str, tool: str, args: dict[str, Any], result: Any) -> None:
+def _put(key: str, tool: str, args: dict[str, Any], result: Any) -> None:
     """
     Store a result in the cache.
 
     The request is stored alongside the result so cache files can be inspected by hand.
 
     Args:
-        key: Key from `key_for`.
+        key: Key from `_key_for`.
         tool: Name of the tool.
         args: The arguments the key was built from.
         result: The JSON-serialisable result to store.
@@ -164,5 +164,5 @@ async def get_or_fetch(
         if (hit := _get(key)) is not None:
             return hit
         result = await fetch()
-        put(key, tool, args, result)
+        _put(key, tool, args, result)
         return result
