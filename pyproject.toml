@@ -49,7 +49,8 @@ lint = [
   "ruff>=0.15",
   "ty>=0.0.1a7",
 ]
-# Mirrors litmcp/requirements.txt, so the litmcp tests can run on the host
+# litmcp's dependencies; litmcp/requirements.txt (for its Docker image) is exported
+# from these by the uv-export pre-commit hook
 litmcp = [
   "httpx==0.28.1",
   "mcp==2.3.0",

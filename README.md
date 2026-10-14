@@ -204,7 +204,7 @@ If making changes to the sandbox, some files require extra changes being made el
 |---|---|
 | `agent/Dockerfile` or `agent/requirements.txt` | increment `AGENT_TAG` in `.env`, then run `./scripts/build.sh` |
 | `litellm/config.yaml` | run `docker compose restart litellm` |
-| Anything in `litmcp/` | run `./scripts/build.sh`, then `docker compose up -d litmcp` (and `uv sync` if `litmcp/requirements.txt` changed; keep it in step with the `litmcp` group in `pyproject.toml`) |
+| Anything in `litmcp/` | run `./scripts/build.sh`, then `docker compose up -d litmcp` (add or change its dependencies in the `litmcp` group in `pyproject.toml`, then `uv sync`; pre-commit regenerates `litmcp/requirements.txt`) |
 | Keys in `~/.zshrc` | run `source ~/.zshrc`, then `docker compose up -d litellm litmcp` |
 
 ### Rules
