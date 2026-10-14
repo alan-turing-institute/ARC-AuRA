@@ -1,4 +1,4 @@
-"""Connection gateway for Aura for key separation and cost tracking."""
+"""Create, block and read the spend of per-run keys on the LiteLLM gateway."""
 
 import os
 
@@ -15,7 +15,8 @@ def _request(method: str, path: str, **kwargs) -> dict:
         response = client.request(method, path, headers=headers, **kwargs)
     except httpx.ConnectError:
         raise RuntimeError(
-            f"Can't reach LiteLLM at {GATEWAY_URL}; is it running? `docker compose up -d litellm`"
+            f"Can't reach LiteLLM at {GATEWAY_URL}; is it running? "
+            "`docker compose up -d litellm`"
         ) from None
     if not response.is_success:
         try:
@@ -30,24 +31,25 @@ def create_run_key(
     run_id: str, model: str, max_budget: float, duration: str, metadata: dict
 ) -> str:
     """
-    Send POST /key/generate with models, budget, duration, metadata to the gateway, and
-    allowed routes. Return the run key from the gateway's response.
+    Create a key for one run, limited to one model, a budget, an expiry and model calls.
 
     Args:
-        run_id: Unique ID for this run.
+        run_id: Unique ID for this run (its run folder name); the key's alias is
+            "run-<run_id>".
         model: Model name as configured in the LiteLLM gateway.
         max_budget: Maximum spend for this run, in USD.
-        duration: Maximum duration for this run.
-        metadata: Arbitrary key-value pairs to attach to the run.
+        duration: How long the key is valid, in LiteLLM's format, e.g. "1h" or "30m".
+        metadata: Details stored with the key, e.g. task, harness and tier.
+
     Returns:
-        A run key string to use in the `Authorization` header for this run.
+        The run key ("sk-..."), to pass to the agent as RUN_KEY.
     """
     body = _request(
         "POST",
         "/key/generate",
         json={
-            "run_id": run_id,
-            "model": model,
+            "key_alias": f"run-{run_id}",
+            "models": [model],
             "max_budget": max_budget,
             "duration": duration,
             "metadata": metadata,
@@ -58,22 +60,10 @@ def create_run_key(
 
 
 def block_key(key: str) -> None:
-    """
-    Send POST /key/block to the gateway to block a run key.
-
-    Args:
-        key: The run key to block.
-    """
+    """Block a run key, so it's refused from now on but its spend history is kept."""
     _request("POST", "/key/block", json={"key": key})
 
 
 def get_spend(key: str) -> float:
-    """
-    Send GET /key/info?key=... to the gateway to get the spend for a run key.
-
-    Args:
-        key: The run key to check.
-    Returns:
-        The spend for the run key, in USD.
-    """
-    return _request("GET", "/key/info", params={"key": key})["spend"]
+    """Return what a run key has spent so far, in USD."""
+    return _request("GET", "/key/info", params={"key": key})["info"]["spend"]

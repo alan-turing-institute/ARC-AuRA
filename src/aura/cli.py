@@ -22,5 +22,23 @@ def main() -> None:
         default=1,
         help=f"Number of task sections to include, in order: {', '.join(TIERS)}.",
     )
+    run_parser.add_argument(
+        "--budget",
+        type=float,
+        default=2.0,
+        help="Maximum spend on model calls for the run, in USD.",
+    )
+    run_parser.add_argument(
+        "--max-duration",
+        default="1h",
+        help='How long the run\'s gateway key is valid, e.g. "30m" or "2h".',
+    )
     args = parser.parse_args()
-    run(args.task, args.harness, args.model, args.task_tier)
+    run(
+        args.task,
+        args.harness,
+        args.model,
+        args.task_tier,
+        args.budget,
+        args.max_duration,
+    )
