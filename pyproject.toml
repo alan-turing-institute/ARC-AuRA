@@ -11,6 +11,7 @@ name = "ARC-AuRA"
 version = "0.1.0"
 authors = [
   { name = "Phil Swatton", email = "pswtton@turing.ac.uk" },
+  { name = "Edmund Dable-Heath", email = "edable-heath@turing.ac.uk" },
 ]
 description = "ARC project on research agents"
 readme = "README.md"
@@ -31,21 +32,36 @@ classifiers = [
   "Topic :: Scientific/Engineering",
   "Typing :: Typed",
 ]
-dependencies = []
+dependencies = [
+    "python-dotenv>=1.2.4",
+]
+
+[project.scripts]
+aura = "aura.cli:main"
 
 [dependency-groups]
 dev = [
   { include-group = "test" },
   { include-group = "lint" },
+  { include-group = "litmcp" },
   "pre-commit>=4.0",
 ]
 test = [
   "pytest>=8.0",
+  "pytest-asyncio>=1.4.0",
   "pytest-cov>=6.0",
 ]
 lint = [
   "ruff>=0.15",
   "ty>=0.0.1a7",
+]
+# litmcp's dependencies; litmcp/requirements.txt (for its Docker image) is exported
+# from these by the uv-export pre-commit hook
+litmcp = [
+  "httpx==0.28.1",
+  "mcp==2.3.0",
+  "pypdfium2==5.14.0",
+  "pillow==12.3.0"
 ]
 
 [project.urls]
@@ -65,6 +81,8 @@ log_cli_level = "INFO"
 testpaths = [
   "tests",
 ]
+pythonpath = ["litmcp"]  # litmcp modules import each other by bare name (import s2)
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.coverage]
 run.source = ["aura"]

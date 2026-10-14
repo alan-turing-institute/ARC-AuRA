@@ -2,7 +2,7 @@ services:
   agent:
     image: research-sandbox:${AGENT_TAG:?not set in .env}
     build: ./agent
-    profiles: ["run"]            # not started by 'up'; only by run.sh
+    profiles: ["run"]            # the agent is not started by 'docker compose up -d'; only by `aura run`
     networks: [sandbox_net]      # no internet route
     environment:
       ANTHROPIC_BASE_URL: http://litellm:4000
@@ -18,9 +18,9 @@ services:
       DISABLE_AUTOUPDATER: "1"
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
     volumes:
-      - ./data:/data:ro
       - ./skills:/skills:ro
       - ${RUN_DIR}/workspace:/workspace
+      - ${RUN_DIR}/task:/task:ro
     cpus: 4
     mem_limit: 16g
     pids_limit: 512
@@ -37,13 +37,16 @@ services:
     volumes: ["./litellm/config.yaml:/app/config.yaml:ro"]
     networks: [sandbox_net, egress_net]
 
-  # litmcp: optional; leave commented out until the literature server exists
-  # litmcp:
-  #   build: ./litmcp
-  #   environment:
-  #     S2_API_KEY: ${S2_API_KEY:-}
-  #   volumes: ["./litmcp/cache:/cache"]
-  #   networks: [sandbox_net, egress_net]
+  litmcp:
+    build: ./litmcp
+    environment:
+      S2_API_KEY: ${S2_API_KEY:-}
+    volumes: ["./litmcp/cache:/cache"]
+    networks: [sandbox_net, egress_net]
+    # Only what entrypoint.sh needs to hand /cache to the right user and drop root
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID]
+    security_opt: ["no-new-privileges:true"]
 
   proxy:
     image: ubuntu/squid:7.2-26.04_edge
