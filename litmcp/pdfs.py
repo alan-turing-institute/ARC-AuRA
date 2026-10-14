@@ -148,7 +148,7 @@ async def _download(url: str) -> bytes | None:
     """Download url; return the bytes if it's a real PDF under MAX_BYTES, else None."""
     global _last_arxiv
     try:
-        if httpx.URL(url).host == "arxiv.org":
+        if "arxiv.org" in httpx.URL(url).host:
             async with _arxiv_lock:
                 wait = ARXIV_GAP - (time.monotonic() - _last_arxiv)
                 if wait > 0:
