@@ -1,12 +1,14 @@
 """
-This module contains the server implementation for the LITMCP framework. It provides the
-necessary functionality to handle incoming requests, manage connections, and facilitate
-communication between clients and the server. The server is designed to be scalable and
-efficient, ensuring that it can handle multiple concurrent connections while maintaining
-low latency and high throughput.
+MCP server giving agents access to academic literature: Semantic Scholar search and
+metadata, plus full-text reading and page images from open-access PDFs.
+
+All results are cached on disk, so every agent asking the same question gets the same
+answer. Runs as a single process; requests to external APIs are rate limited and
+serialised.
 """
 
 import asyncio
+from pathlib import Path
 
 import cache
 import pdfs
@@ -117,14 +119,19 @@ async def get_citations(
     return [_cut_authors(paper, max_authors) for paper in papers]
 
 
+async def _paper_pdf(paper_id: str) -> tuple[dict, Path]:
+    """Look up a paper and return it with the path to its (cached) PDF."""
+    paper = await get_paper(paper_id)
+    return paper, await pdfs.fetch_pdf(paper)
+
+
 async def _paper_texts(paper_id: str) -> tuple[dict, list[str]]:
     """Look up a paper, fetch its (cached) PDF and return the paper and its page texts.
 
     Text is re-extracted from the cached PDF on each call rather than cached itself:
     it is derived deterministically from the PDF, so freezing the PDF freezes it too.
     """
-    paper = await get_paper(paper_id.strip())
-    path = await pdfs.fetch_pdf(paper)
+    paper, path = await _paper_pdf(paper_id)
     # Parsing a PDF is CPU work; a thread keeps the server responsive meanwhile
     texts = await asyncio.to_thread(pdfs.read_texts, path)
     return paper, texts
@@ -226,8 +233,7 @@ async def get_page_image(paper_id: str, page: int) -> Image:
     Returns:
         A PNG image of the whole page.
     """
-    paper = await get_paper(paper_id.strip())
-    path = await pdfs.fetch_pdf(paper)
+    _, path = await _paper_pdf(paper_id)
     # Rendering is CPU work; a thread keeps the server responsive meanwhile
     png = await asyncio.to_thread(pdfs.render_page, path, page)
     return Image(data=png, format="png")
