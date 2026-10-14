@@ -18,7 +18,7 @@ from typing import Any
 CACHE_DIR = Path(os.environ.get("LITMCP_CACHE_DIR", Path(__file__).parent / "cache"))
 
 
-def key_for(tool: str, args: dict[str, Any]) -> str:
+def _key_for(tool: str, args: dict[str, Any]) -> str:
     """
     Build a deterministic cache key from a tool name and its arguments.
 
@@ -36,7 +36,7 @@ def key_for(tool: str, args: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
-def get(key: str) -> Any | None:
+def _get(key: str) -> Any | None:
     """
     Look up a cached result.
 
@@ -156,12 +156,12 @@ async def get_or_fetch(
     Returns:
         The cached or freshly fetched result.
     """
-    key = key_for(tool, args)
-    if (hit := get(key)) is not None:  # fast path: no lock needed for a hit
+    key = _key_for(tool, args)
+    if (hit := _get(key)) is not None:  # fast path: no lock needed for a hit
         return hit
     async with _fetching.hold(key):
         # Check again: whoever held the lock before us may have just stored it
-        if (hit := get(key)) is not None:
+        if (hit := _get(key)) is not None:
             return hit
         result = await fetch()
         put(key, tool, args, result)
