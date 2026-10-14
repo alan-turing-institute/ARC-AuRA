@@ -11,7 +11,7 @@ name = "ARC-AuRA"
 version = "0.1.0"
 authors = [
   { name = "Phil Swatton", email = "pswtton@turing.ac.uk" },
-  { name = "Edmund Dable-Heath", email = "edablehath@turing.ac.uk" },
+  { name = "Edmund Dable-Heath", email = "edable-heath@turing.ac.uk" },
 ]
 description = "ARC project on research agents"
 readme = "README.md"
