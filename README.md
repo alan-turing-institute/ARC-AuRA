@@ -159,21 +159,25 @@ colima stop
 Tasks are run with `aura run`:
 
 ```bash
-aura run <task> [--harness claude-code] [--model claude-haiku-4-5] [--task-tier 1]
+aura run <task> [--harness claude-code] [--model claude-haiku-4-5] [--task-tier 1] \
+  [--stages <stage> ...]
 ```
 
 For example:
 
 ```bash
 aura run dummy_task
+aura run dataset_similarity --task-tier 2 --stages lit_review research_design
 ```
+
+`--task-tier` chooses the inputs the agent receives; `--stages` chooses the outputs it should produce. The stages are `research_questions`, `lit_review`, `research_design`, `experiments`, `analysis` and `report`. Omitting `--stages` requests all of them (end-to-end). Each stage's output is written to `results/<stage>.<ext>`, or to `results/<stage>/` if it has several files.
 
 The task is passed to the agent inline in its prompt and also mounted read-only at `/task/TASK.md`, so the agent can reread it. Each run creates `runs/<timestamp>-<task>-<n>/` containing:
 
 - `workspace/`: everything the agent wrote
 - `task/TASK.md`: the task exactly as the agent received it
 - `log.txt`: full output, with one JSON event per line for each agent step (tool calls, results, final summary)
-- `run_config.json`: image tag, options and the full harness command
+- `run_config.json`: image tag, options (including stages) and the full harness command
 
 Inside the container, the agent can read `/skills` and `/task` (read-only) and write to `/workspace`.
 

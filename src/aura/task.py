@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from aura.constants import TASKS_DIR, TIERS
+from aura.constants import STAGES, TASKS_DIR, TIERS
 
 
 def load_instructions(task_dir: Path) -> str:
@@ -34,17 +34,25 @@ def load_section(task_dir: Path, name: str) -> str:
     return f"<{name}>\n{text}\n</{name}>"
 
 
-def build_prompt(task: str, tier: int) -> str:
+def format_stages(stages: list[str]) -> str:
+    """Format stages as a markdown bullet list, deduplicated and in `STAGES` order."""
+    return "\n".join(f"- `{name}`" for name in STAGES if name in stages)
+
+
+def build_prompt(task: str, tier: int, stages: list[str]) -> str:
     """
-    Fill the instructions template with tagged task sections up to a tier.
+    Fill the instructions template with tagged task sections and requested stages.
 
     Args:
         task: Name of a folder in `tasks/`.
         tier: Number of sections from `TIERS` to include, in order.
+        stages: Names from `STAGES` to produce outputs for.
 
     Returns:
         The full prompt, which is also saved as the run's `TASK.md`.
     """
     task_dir = TASKS_DIR / task
     sections = [load_section(task_dir, name) for name in TIERS[:tier]]
-    return load_instructions(task_dir).format(task="\n\n".join(sections))
+    return load_instructions(task_dir).format(
+        task="\n\n".join(sections), stages=format_stages(stages)
+    )

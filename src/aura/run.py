@@ -66,7 +66,7 @@ def compose_run(command: list[str], run_dir: Path) -> None:
         raise subprocess.CalledProcessError(proc.returncode, proc.args)
 
 
-def run(task: str, harness: str, model: str, tier: int) -> None:
+def run(task: str, harness: str, model: str, tier: int, stages: list[str]) -> None:
     """
     Build a task prompt, record the run's settings and run it in the sandbox.
 
@@ -75,8 +75,9 @@ def run(task: str, harness: str, model: str, tier: int) -> None:
         harness: Key of `HARNESSES` naming the agent harness.
         model: Model name as configured in the LiteLLM gateway.
         tier: Number of task sections to include, in order.
+        stages: Names from `STAGES` to produce outputs for.
     """
-    prompt = build_prompt(task, tier)
+    prompt = build_prompt(task, tier, stages)
     command = HARNESSES[harness](prompt, model)
     run_dir = make_run_dir(task)
     (run_dir / "task" / "TASK.md").write_text(prompt)
@@ -84,6 +85,7 @@ def run(task: str, harness: str, model: str, tier: int) -> None:
         "image": f"research-sandbox:{AGENT_TAG}",
         "task": task,
         "task_tier": tier,
+        "stages": stages,
         "harness": harness,
         "model": model,
         "command": command,

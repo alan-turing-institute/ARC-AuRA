@@ -2,7 +2,7 @@
 
 import argparse
 
-from aura.constants import TIERS
+from aura.constants import STAGES, TIERS
 from aura.run import HARNESSES, run
 
 
@@ -22,5 +22,14 @@ def main() -> None:
         default=1,
         help=f"Number of task sections to include, in order: {', '.join(TIERS)}.",
     )
+    run_parser.add_argument(
+        "--stages",
+        nargs="+",
+        choices=STAGES,
+        metavar="STAGE",
+        default=list(STAGES),
+        help=f"Stages to produce outputs for, from: {', '.join(STAGES)}. "
+        "Defaults to all.",
+    )
     args = parser.parse_args()
-    run(args.task, args.harness, args.model, args.task_tier)
+    run(args.task, args.harness, args.model, args.task_tier, args.stages)

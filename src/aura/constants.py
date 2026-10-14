@@ -14,3 +14,11 @@ MCP_CONFIG = PROJECT_ROOT / "mcp.json"
 # Constants
 AGENT_TAG = dotenv_values(PROJECT_ROOT / ".env")["AGENT_TAG"]
 TIERS = ("requirement", "research_questions", "lit_review")
+STAGES = (
+    "research_questions",
+    "lit_review",
+    "research_design",
+    "experiments",
+    "analysis",
+    "report",
+)
