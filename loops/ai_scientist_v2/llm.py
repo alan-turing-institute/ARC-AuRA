@@ -27,7 +27,7 @@ def query(
     """
     response = litellm.completion(
         model=f"litellm_proxy/{model}",
-        api_base="http://litellm:4000/v1",
+        api_base=os.environ["OPENAI_BASE_URL"],
         api_key=os.environ["ANTHROPIC_AUTH_TOKEN"],
         messages=messages,
         tools=tools,
