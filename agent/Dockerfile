@@ -2,7 +2,7 @@ FROM python:3.12-slim
 
 # System tools and Node 22 (needed by Claude Code and OpenCode)
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl git ca-certificates \
+ && apt-get install -y --no-install-recommends curl git ca-certificates ripgrep \
  && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
  && rm -rf /var/lib/apt/lists/*
