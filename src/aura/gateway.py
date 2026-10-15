@@ -28,7 +28,7 @@ def _request(method: str, path: str, **kwargs) -> dict:
 
 
 def create_run_key(
-    run_id: str, model: str, max_budget: float, duration: str, metadata: dict
+    run_id: str, model: str, max_budget: float, max_duration: str, metadata: dict
 ) -> str:
     """
     Create a key for one run, limited to one model, a budget, an expiry and model calls.
@@ -38,7 +38,7 @@ def create_run_key(
             "run-<run_id>".
         model: Model name as configured in the LiteLLM gateway.
         max_budget: Maximum spend for this run, in USD.
-        duration: How long the key is valid, in LiteLLM's format, e.g. "1h" or "30m".
+        max_duration: How long the key is valid, in LiteLLM's format, e.g. "1h".
         metadata: Details stored with the key, e.g. task, harness and tier.
 
     Returns:
@@ -51,7 +51,7 @@ def create_run_key(
             "key_alias": f"run-{run_id}",
             "models": [model],
             "max_budget": max_budget,
-            "duration": duration,
+            "duration": max_duration,
             "metadata": metadata,
             "allowed_routes": ["llm_api_routes"],
         },

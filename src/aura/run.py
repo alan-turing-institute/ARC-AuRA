@@ -75,7 +75,7 @@ def _warn(run_dir: Path, message: str) -> None:
         log.write(line)
 
 
-def _close_run_key(key: str, run_dir: Path, budget: float, duration: str) -> None:
+def _close_run_key(key: str, run_dir: Path, budget: float, max_duration: str) -> None:
     """
     Block a run's key and write what it spent to `cost.json`.
 
@@ -86,7 +86,7 @@ def _close_run_key(key: str, run_dir: Path, budget: float, duration: str) -> Non
         key: The run's key, from `create_run_key`.
         run_dir: Run folder to write `cost.json` to.
         budget: The key's budget in USD, recorded alongside the spend.
-        duration: The key's expiry, recorded alongside the spend.
+        max_duration: The key's expiry, recorded alongside the spend.
     """
     try:
         block_key(key)
@@ -101,7 +101,7 @@ def _close_run_key(key: str, run_dir: Path, budget: float, duration: str) -> Non
     cost = {
         "key_alias": f"run-{run_dir.name}",
         "max_budget": budget,
-        "duration": duration,
+        "duration": max_duration,
         "spend_usd": spend,
     }
     (run_dir / "cost.json").write_text(json.dumps(cost, indent=2))
@@ -113,7 +113,7 @@ def run(
     model: str,
     tier: int,
     budget: float,
-    duration: str,
+    max_duration: str,
 ) -> None:
     """
     Build a task prompt, record the run's settings and run it in the sandbox.
@@ -124,7 +124,7 @@ def run(
         model: Model name as configured in the LiteLLM gateway.
         tier: Number of task sections to include, in order.
         budget: Maximum spend on model calls for the run, in USD.
-        duration: How long the run's key is valid, in LiteLLM's format, e.g. "1h".
+        max_duration: How long the run's key is valid, in LiteLLM's format, e.g. "1h".
     """
     prompt = build_prompt(task, tier)
     command = HARNESSES[harness](prompt, model)
@@ -137,14 +137,14 @@ def run(
         "harness": harness,
         "model": model,
         "budget": budget,
-        "duration": duration,
+        "duration": max_duration,
         "command": command,
     }
     (run_dir / "run_config.json").write_text(json.dumps(config, indent=2))
     metadata = {"task": task, "harness": harness, "tier": tier}
-    key = create_run_key(run_dir.name, model, budget, duration, metadata)
+    key = create_run_key(run_dir.name, model, budget, max_duration, metadata)
     try:
         compose_run(command, run_dir, key)
     finally:
-        _close_run_key(key, run_dir, budget, duration)
+        _close_run_key(key, run_dir, budget, max_duration)
     print(f"Finished: {run_dir}")

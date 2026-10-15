@@ -15,8 +15,8 @@ def fake_run(tmp_path, monkeypatch):
     """Replace the gateway, Docker and task prompt with fakes; return what they saw."""
     seen = {"blocked": []}
 
-    def fake_create_run_key(run_id, model, max_budget, duration, metadata):
-        seen["limits"] = (max_budget, duration)
+    def fake_create_run_key(run_id, model, max_budget, max_duration, metadata):
+        seen["limits"] = (max_budget, max_duration)
         return RUN_KEY
 
     def fake_compose_run(command, run_dir, run_key):
@@ -39,7 +39,9 @@ def cost_json(tmp_path) -> str:
 
 
 def test_run_uses_its_own_key_and_records_cost(fake_run, tmp_path):
-    run.run("task", "claude-code", "claude-haiku-4-5", 1, budget=0.5, duration="10m")
+    run.run(
+        "task", "claude-code", "claude-haiku-4-5", 1, budget=0.5, max_duration="10m"
+    )
 
     assert fake_run["run_key"] == RUN_KEY  # never the master key
     assert fake_run["limits"] == (0.5, "10m")
