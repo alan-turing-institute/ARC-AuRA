@@ -6,21 +6,11 @@ import json
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-LITMCP_URL = "http://localhost:8000/mcp"
+LITMCP_URL = "http://litmcp:8000/mcp"
 
 
 async def _search(query: str, limit: int = 10) -> list[dict]:
-    """
-    Wraps an async MCP session to search for papers using the literature MCP server.
-
-    Args:
-        query: The search query string.
-        limit: The maximum number of results to return.
-    Returns:
-        List of dictionaries containing the search results, with each dictionary
-        representing a paper, containing a paper_id that can be passed to get_paper or
-        get_citations. author_count gives each paper's total number of authors.
-    """
+    """Call litmcp's search_papers tool over MCP"""
     async with streamable_http_client(LITMCP_URL) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
@@ -42,6 +32,6 @@ def search_papers(query: str, limit: int = 10) -> list[dict]:
         query: The search query string.
         limit: The maximum number of results to return.
     Returns:
-        Papers with their paper_id, titl, authors, year and abstract.
+        Papers with their paper_id, title, authors, year and abstract.
     """
     return asyncio.run(_search(query, limit))
