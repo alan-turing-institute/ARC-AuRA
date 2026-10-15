@@ -3,7 +3,7 @@ import json
 from aura.constants import MCP_CONFIG
 
 
-def _open_code_config(model: str) -> dict:
+def _opencode_config(model: str) -> dict:
     """
     Build OpenCode config: LiteLLM as the Anthropic API, MCP servers from mcp.json.
 
@@ -18,8 +18,8 @@ def _open_code_config(model: str) -> dict:
         "provider": {
             "anthropic": {
                 "options": {
-                    "baseURL": "http://lite-llm:4000/v1",
-                    "apiKey": "{env:ANTHROPIC_API_KEY}",
+                    "baseURL": "http://litellm:4000/v1",
+                    "apiKey": "{env:ANTHROPIC_AUTH_TOKEN}",
                 }
             }
         },
@@ -49,7 +49,7 @@ def opencode_command(prompt: str, model: str) -> list[str]:
     """
     return [
         "env",
-        f"OPENCODE_CONFIG_CONTENT={json.dumps(_open_code_config(model))}",
+        f"OPENCODE_CONFIG_CONTENT={json.dumps(_opencode_config(model))}",
         "opencode",
         "run",
         prompt,
