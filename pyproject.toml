@@ -81,7 +81,7 @@ log_cli_level = "INFO"
 testpaths = [
   "tests",
 ]
-pythonpath = ["litmcp"]  # litmcp modules import each other by bare name (import s2)
+pythonpath = ["litmcp", "loops"]  # litmcp modules import each other by bare name (import s2)
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.coverage]
