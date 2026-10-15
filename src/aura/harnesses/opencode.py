@@ -18,7 +18,7 @@ def _opencode_config(model: str) -> dict:
         "provider": {
             "anthropic": {
                 "options": {
-                    "baseURL": "http://litellm:4000/v1",
+                    "baseURL": "{env:ANTHROPIC_BASE_URL}/v1",
                     "apiKey": "{env:ANTHROPIC_AUTH_TOKEN}",
                 }
             }
