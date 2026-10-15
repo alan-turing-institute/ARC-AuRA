@@ -93,7 +93,10 @@ def _close_run_key(key: str, run_dir: Path, budget: float, duration: str) -> Non
         "duration": duration,
         "spend_usd": spend,
     }
-    (run_dir / "cost.json").write_text(json.dumps(cost, indent=2))
+    try:
+        (run_dir / "cost.json").write_text(json.dumps(cost, indent=2))
+    except OSError as e:
+        print(f"Warning: couldn't write the run's cost: {e}", file=sys.stderr)
 
 
 def run(
