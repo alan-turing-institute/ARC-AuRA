@@ -24,7 +24,7 @@ services:
       - ./skills:/skills:ro
       - ${RUN_DIR}/workspace:/workspace
       - ${RUN_DIR}/task:/task:ro
-      - ${RUN_DIR}/loops:/loops:ro
+      - ./loops:/loops:ro
     cpus: 4
     mem_limit: 16g
     pids_limit: 512
