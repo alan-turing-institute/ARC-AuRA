@@ -75,7 +75,8 @@ Agents run in throwaway Docker containers with no internet access. Each run gets
 | Component | Config | Role |
 |---|---|---|
 | `agent` | `agent/Dockerfile` | Image the harness runs in (Claude Code + OpenCode + Python stack). One fresh container per run; sandbox network only. |
-| `litellm` | `litellm/config.yaml` | Model gateway. Holds API keys and forwards model calls; agents only get a gateway key. |
+| `litellm` | `litellm/config.yaml` | Model gateway. Holds API keys and forwards model calls. Each run gets its own gateway key, limited to one model, a budget and an expiry. Published on `127.0.0.1:4000` only, so `aura run` can create those keys. |
+| `postgres` | `docker-compose.yml` | LiteLLM's database: run keys and their spend. Only `litellm` can reach it; data persists in the `litellm_db` volume. |
 | `proxy` | `proxy/squid.conf` | Manages agent website access. |
 | `litmcp` | `litmcp/` | Literature MCP server. Searches Semantic Scholar and serves open-access paper text and page images to agents, caching every result in `litmcp/cache/`. Holds the Semantic Scholar key; agents only reach it over the sandbox network. |
 | `mcp.json` | repo root | MCP config pointing the agent at `litmcp`. `aura run` passes it to Claude Code with `--mcp-config` and to OpenCode in its config. |
@@ -92,9 +93,10 @@ Agents run in throwaway Docker containers with no internet access. Each run gets
 export AZURE_FOUNDRY_API_BASE="https://<resource>.services.ai.azure.com/anthropic"
 export AZURE_FOUNDRY_API_KEY="<foundry key>"
 export LITELLM_MASTER_KEY="sk-<output of: openssl rand -hex 24>"
+export LITELLM_DB_PASSWORD="<output of: openssl rand -hex 24>"
 ```
 
-Note the last of these is required across all models.
+Note the last two of these are required across all models. `LITELLM_DB_PASSWORD` is the password for LiteLLM's database; keep it hex, as other characters would need escaping in its connection URL.
 
 2. Get a Semantic Scholar API key for the literature server (`litmcp`). It works without one, but unauthenticated requests share a public rate limit and are often refused with HTTP 429.
 
@@ -138,8 +140,8 @@ colima start
 2. Startup the modelgateway and proxy and verify they are running. If using Colima, start it first with `colima start` (skip this if it is already running; check with `colima status`).
 
 ```bash
-docker compose up -d litellm proxy litmcp   # start gateway, proxy and literature server
-docker compose ps                           # all three should be running
+docker compose up -d litellm proxy litmcp   # start gateway (and its database), proxy and literature server
+docker compose ps                           # all four should be running, postgres "healthy"
 ```
 
 3. Once finished for the day, shut everything down aferwards with:
@@ -147,6 +149,8 @@ docker compose ps                           # all three should be running
 ```bash
 docker compose down
 ```
+
+**Don't add `-v`:** `docker compose down -v` also deletes the `litellm_db` volume, and with it every run key and its cost history.
 
 4. Stop the colima VM to free up its CPU and memory (it keeps running, even through sleep, until stopped):
 
@@ -174,6 +178,9 @@ The task is passed to the agent inline in its prompt and also mounted read-only 
 - `task/TASK.md`: the task exactly as the agent received it
 - `log.txt`: full output, with one JSON event per line for each agent step (tool calls, results, final summary)
 - `run_config.json`: image tag, options and the full harness command
+- `cost.json`: the run's key alias, budget, expiry and final spend in USD
+
+Each run gets a fresh gateway key, limited to the chosen model, `--budget` (USD) and `--max-duration` (in LiteLLM's format, e.g. `30m` or `2h`). If the run reaches either limit, the gateway refuses further model calls and the run ends with an error. The key is blocked when the run ends, however it ends, and its spend is recorded about 12 seconds later, once LiteLLM has saved it. Budgets can be overshot slightly, by whatever the run spends in the last few seconds before the limit is noticed.
 
 Inside the container, the agent can read `/skills` and `/task` (read-only) and write to `/workspace`.
 
@@ -233,14 +240,20 @@ If making changes to the sandbox, some files require extra changes being made el
 
 ### Verifying the sandbox
 
-If needing to check the sandbox is still secure (e.g. after making changes), run the following:
+If needing to check the sandbox is still secure (e.g. after making changes), run the following. Most checks use a short-lived test key, like the one each run gets:
 
 ```bash
+# Test key: claude-haiku-4-5 only, $0.01, 10 minutes, model calls only
+KEY=$(curl -s localhost:4000/key/generate -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H 'Content-Type: application/json' -d '{"key_alias": "sandbox-check",
+  "models": ["claude-haiku-4-5"], "max_budget": 0.01, "duration": "10m",
+  "allowed_routes": ["llm_api_routes"]}' | jq -r .key)
+
 # 1. Gateway reachable → a short "alive" message
 RUN_DIR="$TMPDIR" docker compose run --rm -T agent curl -s http://litellm:4000/health/liveliness
 
 # 2. Model call works → a reply from the model
-RUN_KEY="$LITELLM_MASTER_KEY" RUN_DIR="$TMPDIR" docker compose run --rm -T agent claude -p "Say hello" < /dev/null
+RUN_KEY="$KEY" RUN_DIR="$TMPDIR" docker compose run --rm -T agent claude -p "Say hello" < /dev/null
 
 # 3. Blocked site via proxy → 403
 RUN_DIR="$TMPDIR" docker compose run --rm -T agent curl -sS https://example.com
@@ -254,10 +267,9 @@ RUN_DIR="$TMPDIR" docker compose run --rm -T agent pip download requests -d /tmp
 # 6. Data is read-only → "Read-only file system"
 RUN_DIR="$TMPDIR" docker compose run --rm -T agent touch /data/test
 
-# 7. No secrets inside → no output # TODO: stop passing master key
-#    (currently prints the master key lines; TODO: stop passing the master key)
-RUN_KEY="$LITELLM_MASTER_KEY" RUN_DIR="$TMPDIR" docker compose run --rm -T agent env \
-  | grep -F -e "$AZURE_FOUNDRY_API_KEY" -e "$LITELLM_MASTER_KEY"
+# 7. No secrets inside a real run → 0 (run while an `aura run` is in progress)
+docker exec "$(docker ps -q --filter name=agent-run | head -1)" env \
+  | grep -c -F -e "$AZURE_FOUNDRY_API_KEY" -e "$LITELLM_MASTER_KEY"
 
 # 8. Not root → uid=1000(agent)
 RUN_DIR="$TMPDIR" docker compose run --rm -T agent id
@@ -284,11 +296,26 @@ RUN_DIR="$TMPDIR" docker compose run --rm -T agent curl -sS --noproxy '*' --max-
 RUN_DIR="$TMPDIR" docker compose run --rm -T agent curl -sS -o /dev/null https://arxiv.org
 
 # 15. Semantic Scholar key not inside → 0
-RUN_KEY="$LITELLM_MASTER_KEY" RUN_DIR="$TMPDIR" docker compose run --rm -T agent env \
+RUN_KEY="$KEY" RUN_DIR="$TMPDIR" docker compose run --rm -T agent env \
   | grep -c -F -e "${S2_API_KEY:?set S2_API_KEY first}"
+
+# 16. Database not reachable from the sandbox → socket.gaierror (name not resolved)
+RUN_DIR="$TMPDIR" docker compose run --rm -T agent \
+  python -c "import socket; socket.create_connection(('postgres', 5432), timeout=5)"
+
+# 17. A run key can't create keys → an error, not a new key
+curl -s localhost:4000/key/generate -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' -d '{}'
+
+# 18. Budget enforced → the run stops with a budget error; cost.json still records its spend
+aura run dummy_task --budget 0.0001
+
+# Finally, block the test key
+curl -s localhost:4000/key/block -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H 'Content-Type: application/json' -d "{\"key\": \"$KEY\"}" > /dev/null
 ```
 
-Checks 12–14 confirm that agents get literature only through `litmcp`, not directly from the internet.
+Checks 12–14 confirm that agents get literature only through `litmcp`, not directly from the internet. Checks 7 and 16–18 confirm that agents never hold the gateway's master key, can't reach its database, and are held to their run key's limits.
 
 ## License
 
