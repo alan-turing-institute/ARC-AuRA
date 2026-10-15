@@ -18,7 +18,7 @@ from typing import Any
 CACHE_DIR = Path(os.environ.get("LITMCP_CACHE_DIR", Path(__file__).parent / "cache"))
 
 
-def key_for(tool: str, args: dict[str, Any]) -> str:
+def _key_for(tool: str, args: dict[str, Any]) -> str:
     """
     Build a deterministic cache key from a tool name and its arguments.
 
@@ -36,12 +36,12 @@ def key_for(tool: str, args: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
-def get(key: str) -> Any | None:
+def _get(key: str) -> Any | None:
     """
     Look up a cached result.
 
     Args:
-        key: Key from `key_for`.
+        key: Key from `_key_for`.
 
     Returns:
         The stored result, or None if there is no entry for this key.
@@ -52,14 +52,14 @@ def get(key: str) -> Any | None:
     return json.loads(path.read_text())["result"]
 
 
-def put(key: str, tool: str, args: dict[str, Any], result: Any) -> None:
+def _put(key: str, tool: str, args: dict[str, Any], result: Any) -> None:
     """
     Store a result in the cache.
 
     The request is stored alongside the result so cache files can be inspected by hand.
 
     Args:
-        key: Key from `key_for`.
+        key: Key from `_key_for`.
         tool: Name of the tool.
         args: The arguments the key was built from.
         result: The JSON-serialisable result to store.
@@ -156,13 +156,13 @@ async def get_or_fetch(
     Returns:
         The cached or freshly fetched result.
     """
-    key = key_for(tool, args)
-    if (hit := get(key)) is not None:  # fast path: no lock needed for a hit
+    key = _key_for(tool, args)
+    if (hit := _get(key)) is not None:  # fast path: no lock needed for a hit
         return hit
     async with _fetching.hold(key):
         # Check again: whoever held the lock before us may have just stored it
-        if (hit := get(key)) is not None:
+        if (hit := _get(key)) is not None:
             return hit
         result = await fetch()
-        put(key, tool, args, result)
+        _put(key, tool, args, result)
         return result

@@ -28,3 +28,16 @@ repos:
         args: ["--fix", "--show-fixes"]
       # then, format
       - id: ruff-format
+
+  # litmcp/requirements.txt (used by the litmcp Docker image) is generated from the
+  # litmcp group in pyproject.toml via uv.lock; edit pyproject.toml, not this file
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: "0.10.4"
+    hooks:
+      - id: uv-export
+        args:
+          - --frozen
+          - --only-group=litmcp
+          - --no-hashes
+          - --no-emit-project
+          - --output-file=litmcp/requirements.txt
