@@ -150,7 +150,7 @@ docker compose ps                           # all four should be running, postgr
 docker compose down
 ```
 
-Don't add `-v`: `docker compose down -v` also deletes the `litellm_db` volume, and with it every run key and its cost history.
+**Don't add `-v`:** `docker compose down -v` also deletes the `litellm_db` volume, and with it every run key and its cost history.
 
 4. Stop the colima VM to free up its CPU and memory (it keeps running, even through sleep, until stopped):
 
