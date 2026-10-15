@@ -82,10 +82,13 @@ def _close_run_key(key: str, run_dir: Path, budget: float, duration: str) -> Non
     """
     try:
         block_key(key)
+    except RuntimeError as e:
+        print(f"Warning: couldn't block the run's key: {e}", file=sys.stderr)
+    try:
         time.sleep(SPEND_WAIT)  # let LiteLLM write the run's last spend
         spend = get_spend(key)
     except RuntimeError as e:
-        print(f"Warning: couldn't close the run's key: {e}", file=sys.stderr)
+        print(f"Warning: couldn't read the run's key: {e}", file=sys.stderr)
         return
     cost = {
         "key_alias": f"run-{run_dir.name}",

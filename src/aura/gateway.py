@@ -13,9 +13,9 @@ def _request(method: str, path: str, **kwargs) -> dict:
     headers = {"Authorization": f"Bearer {os.environ['LITELLM_MASTER_KEY']}"}
     try:
         response = client.request(method, path, headers=headers, **kwargs)
-    except httpx.RequestError:
+    except httpx.RequestError as e:
         raise RuntimeError(
-            f"Can't reach LiteLLM at {GATEWAY_URL}; is it running? "
+            f"Can't reach LiteLLM at {GATEWAY_URL} ({e}); is it running? "
             "`docker compose up -d litellm`"
         ) from None
     if not response.is_success:
