@@ -17,6 +17,9 @@ services:
       NO_PROXY: litellm,litmcp
       DISABLE_AUTOUPDATER: "1"
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+      OPENCODE_DISABLE_MODELS_FETCH: "1"
+      OPENCODE_DISABLE_LSP_DOWNLOAD: "1"
+      OPENCODE_DISABLE_CLAUDE_CODE: "1"
     volumes:
       - ./skills:/skills:ro
       - ${RUN_DIR}/workspace:/workspace
