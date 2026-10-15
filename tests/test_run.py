@@ -58,7 +58,7 @@ def test_key_is_blocked_and_cost_recorded_when_run_fails(
     monkeypatch.setattr(run, "compose_run", failing_compose_run)
 
     with pytest.raises(subprocess.CalledProcessError):
-        run.run("task", "claude-code", "claude-haiku-4-5", 1)
+        run.run("task", "claude-code", "claude-haiku-4-5", 1, 2.0, "1h")
 
     assert fake_run["blocked"] == [RUN_KEY]
     assert json.loads(cost_json(tmp_path))["spend_usd"] == 0.25

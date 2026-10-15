@@ -67,12 +67,20 @@ def compose_run(command: list[str], run_dir: Path, run_key: str) -> None:
         raise subprocess.CalledProcessError(proc.returncode, proc.args)
 
 
+def _warn(run_dir: Path, message: str) -> None:
+    """Print a warning and append it to the run's `log.txt`."""
+    line = f"Warning: {message}\n"
+    sys.stderr.write(line)
+    with (run_dir / "log.txt").open("a") as log:
+        log.write(line)
+
+
 def _close_run_key(key: str, run_dir: Path, budget: float, duration: str) -> None:
     """
     Block a run's key and write what it spent to `cost.json`.
 
-    Failures only print a warning, so they can't hide an error from the run itself;
-    the key's expiry still stops it being used.
+    Gateway failures only give a warning, so they can't hide an error from the run
+    itself; the key's expiry still stops it being used.
 
     Args:
         key: The run's key, from `create_run_key`.
@@ -83,12 +91,12 @@ def _close_run_key(key: str, run_dir: Path, budget: float, duration: str) -> Non
     try:
         block_key(key)
     except RuntimeError as e:
-        print(f"Warning: couldn't block the run's key: {e}", file=sys.stderr)
+        _warn(run_dir, f"couldn't block the run's key: {e}")
     try:
         time.sleep(SPEND_WAIT)  # let LiteLLM write the run's last spend
         spend = get_spend(key)
     except RuntimeError as e:
-        print(f"Warning: couldn't read the run's key: {e}", file=sys.stderr)
+        _warn(run_dir, f"couldn't read the run's spend: {e}")
         return
     cost = {
         "key_alias": f"run-{run_dir.name}",
@@ -96,10 +104,7 @@ def _close_run_key(key: str, run_dir: Path, budget: float, duration: str) -> Non
         "duration": duration,
         "spend_usd": spend,
     }
-    try:
-        (run_dir / "cost.json").write_text(json.dumps(cost, indent=2))
-    except OSError as e:
-        print(f"Warning: couldn't write the run's cost: {e}", file=sys.stderr)
+    (run_dir / "cost.json").write_text(json.dumps(cost, indent=2))
 
 
 def run(
@@ -107,8 +112,8 @@ def run(
     harness: str,
     model: str,
     tier: int,
-    budget: float = 2.0,
-    duration: str = "1h",
+    budget: float,
+    duration: str,
 ) -> None:
     """
     Build a task prompt, record the run's settings and run it in the sandbox.
