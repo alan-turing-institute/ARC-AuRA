@@ -30,13 +30,14 @@ def make_run_dir(task: str) -> Path:
     return run_dir
 
 
-def compose_run(command: list[str], run_dir: Path) -> None:
+def compose_run(command: list[str], run_dir: Path, model: str) -> None:
     """
     Run a command in a fresh agent container, copying output to `log.txt`.
 
     Args:
         command: Harness command to run inside the container.
         run_dir: Run folder whose `workspace` and `task` folders are mounted.
+        model: Model name as configured in the LiteLLM gateway.
 
     Raises:
         subprocess.CalledProcessError: If the container exits with an error.
@@ -44,6 +45,7 @@ def compose_run(command: list[str], run_dir: Path) -> None:
     env = {
         **os.environ,
         "RUN_DIR": str(run_dir),
+        "RUN_MODEL": model,
         "RUN_KEY": os.environ["LITELLM_MASTER_KEY"],  # TODO: stop passing master key
     }
     compose_file = str(PROJECT_ROOT / "docker-compose.yml")
@@ -91,5 +93,5 @@ def run(task: str, harness: str, model: str, tier: int, stages: list[str]) -> No
         "command": command,
     }
     (run_dir / "run_config.json").write_text(json.dumps(config, indent=2))
-    compose_run(command, run_dir)
+    compose_run(command, run_dir, model)
     print(f"Finished: {run_dir}")

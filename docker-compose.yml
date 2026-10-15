@@ -7,9 +7,9 @@ services:
     environment:
       ANTHROPIC_BASE_URL: http://litellm:4000
       ANTHROPIC_AUTH_TOKEN: ${RUN_KEY}
-      ANTHROPIC_MODEL: claude-haiku-4-5
-      ANTHROPIC_DEFAULT_SONNET_MODEL: claude-haiku-4-5
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: claude-haiku-4-5
+      ANTHROPIC_MODEL: ${RUN_MODEL}
+      ANTHROPIC_DEFAULT_SONNET_MODEL: ${RUN_MODEL}
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: ${RUN_MODEL}
       OPENAI_BASE_URL: http://litellm:4000/v1
       OPENAI_API_KEY: ${RUN_KEY}
       HTTP_PROXY: http://proxy:3128
@@ -30,10 +30,11 @@ services:
   litellm:
     image: ghcr.io/berriai/litellm:v1.100.3
     command: ["--config", "/app/config.yaml", "--port", "4000"]
+    # Provider keys are passed through only if set; add any used in litellm/config.yaml
     environment:
-      AZURE_FOUNDRY_API_KEY: ${AZURE_FOUNDRY_API_KEY:?not set - see Step 4}
-      AZURE_FOUNDRY_API_BASE: ${AZURE_FOUNDRY_API_BASE:?not set - see Step 4}
-      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?not set - see Step 4}
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:?not set - see README}
+      - AZURE_FOUNDRY_API_KEY
+      - AZURE_FOUNDRY_API_BASE
     volumes: ["./litellm/config.yaml:/app/config.yaml:ro"]
     networks: [sandbox_net, egress_net]
 

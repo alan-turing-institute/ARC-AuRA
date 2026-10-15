@@ -86,7 +86,7 @@ Agents run in throwaway Docker containers with no internet access. Each run gets
 
 ### First time setup
 
-1. Add the environment variables required by your chosen model. See </litellm/config.yaml> for options. For example, if using `claude-haiku-4-5`, you will need the following keys:
+1. Add the environment variables required by the models you will use. See </litellm/config.yaml> for options; each provider key it reads must also be listed under `litellm`'s `environment` in `docker-compose.yml`. For example, if using `claude-haiku-4-5`, you will need the following keys:
 
 ```bash
 export AZURE_FOUNDRY_API_BASE="https://<resource>.services.ai.azure.com/anthropic"
@@ -94,7 +94,7 @@ export AZURE_FOUNDRY_API_KEY="<foundry key>"
 export LITELLM_MASTER_KEY="sk-<output of: openssl rand -hex 24>"
 ```
 
-Note the last of these is required across all models.
+Note the last of these is required across all models. Provider keys you don't set are simply not passed to the gateway.
 
 2. Get a Semantic Scholar API key for the literature server (`litmcp`). It works without one, but unauthenticated requests share a public rate limit and are often refused with HTTP 429.
 
@@ -170,7 +170,7 @@ aura run dummy_task
 aura run dataset_similarity --task-tier 2 --stages lit_review research_design
 ```
 
-`--task-tier` chooses the inputs the agent receives; `--stages` chooses the outputs it should produce. The stages are `research_questions`, `lit_review`, `research_design`, `experiments`, `analysis` and `report`. Omitting `--stages` requests all of them (end-to-end). Each stage's output is written to `results/<stage>.<ext>`, or to `results/<stage>/` if it has several files.
+`--model` accepts any `model_name` in `litellm/config.yaml` and defaults to the first. `--task-tier` chooses the inputs the agent receives; `--stages` chooses the outputs it should produce. The stages are `research_questions`, `lit_review`, `research_design`, `experiments`, `analysis` and `report`. Omitting `--stages` requests all of them (end-to-end). Each stage's output is written to `results/<stage>.<ext>`, or to `results/<stage>/` if it has several files.
 
 The task is passed to the agent inline in its prompt and also mounted read-only at `/task/TASK.md`, so the agent can reread it. Each run creates `runs/<timestamp>-<task>-<n>/` containing:
 
@@ -225,7 +225,7 @@ If making changes to the sandbox, some files require extra changes being made el
 | If you've changed | Then |
 |---|---|
 | `agent/Dockerfile` or `agent/requirements.txt` | increment `AGENT_TAG` in `.env`, then run `./scripts/build.sh` |
-| `litellm/config.yaml` | run `docker compose restart litellm` |
+| `litellm/config.yaml` | run `docker compose restart litellm`. If adding a provider, also add its key variable names to `litellm`'s `environment` in `docker-compose.yml` and run `docker compose up -d litellm` |
 | Anything in `litmcp/` | run `./scripts/build.sh`, then `docker compose up -d litmcp` (and `uv sync` if `litmcp/requirements.txt` changed; keep it in step with the `litmcp` group in `pyproject.toml`) |
 | Keys in `~/.zshrc` | run `source ~/.zshrc`, then `docker compose up -d litellm litmcp` |
 
@@ -244,7 +244,7 @@ If needing to check the sandbox is still secure (e.g. after making changes), run
 RUN_DIR="$TMPDIR" docker compose run --rm -T agent curl -s http://litellm:4000/health/liveliness
 
 # 2. Model call works → a reply from the model
-RUN_KEY="$LITELLM_MASTER_KEY" RUN_DIR="$TMPDIR" docker compose run --rm -T agent claude -p "Say hello" < /dev/null
+RUN_MODEL=claude-haiku-4-5 RUN_KEY="$LITELLM_MASTER_KEY" RUN_DIR="$TMPDIR" docker compose run --rm -T agent claude -p "Say hello" < /dev/null
 
 # 3. Blocked site via proxy → 403
 RUN_DIR="$TMPDIR" docker compose run --rm -T agent curl -sS https://example.com
