@@ -74,11 +74,11 @@ Agents run in throwaway Docker containers with no internet access. Each run gets
 
 | Component | Config | Role |
 |---|---|---|
-| `agent` | `agent/Dockerfile` | Image the harness runs in (Claude Code + Python stack). One fresh container per run; sandbox network only. |
+| `agent` | `agent/Dockerfile` | Image the harness runs in (Claude Code + OpenCode + Python stack). One fresh container per run; sandbox network only. |
 | `litellm` | `litellm/config.yaml` | Model gateway. Holds API keys and forwards model calls; agents only get a gateway key. |
 | `proxy` | `proxy/squid.conf` | Manages agent website access. |
 | `litmcp` | `litmcp/` | Literature MCP server. Searches Semantic Scholar and serves open-access paper text and page images to agents, caching every result in `litmcp/cache/`. Holds the Semantic Scholar key; agents only reach it over the sandbox network. |
-| `mcp.json` | repo root | MCP config pointing the agent at `litmcp`. `aura run` passes it to Claude Code with `--mcp-config`. |
+| `mcp.json` | repo root | MCP config pointing the agent at `litmcp`. `aura run` passes it to Claude Code with `--mcp-config` and to OpenCode in its config. |
 | `.env` | repo root | Agent image tag. Increment it whenever the image changes to keep old images cached. |
 | `scripts/` | | `build.sh` builds the agent image. |
 | `aura run` | `src/aura/` | Assembles a task prompt and runs it in a fresh agent container. |
@@ -159,7 +159,7 @@ colima stop
 Tasks are run with `aura run`:
 
 ```bash
-aura run <task> [--harness claude-code] [--model claude-haiku-4-5] [--task-tier 1]
+aura run <task> [--harness claude-code|opencode] [--model claude-haiku-4-5] [--task-tier 1]
 ```
 
 For example:
@@ -195,7 +195,7 @@ Tiers are numbered and stack in order: 1 = requirement, 2 = + research questions
 
 ### Literature tools
 
-Every run gets the literature server's tools (Claude Code names them `mcp__literature__<tool>`):
+Every run gets the literature server's tools (Claude Code names them `mcp__literature__<tool>`, OpenCode `literature_<tool>`):
 
 | Tool | Purpose |
 |---|---|
