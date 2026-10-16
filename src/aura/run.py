@@ -5,12 +5,16 @@ import os
 import random
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
 from aura.constants import AGENT_TAG, PROJECT_ROOT
+from aura.gateway import block_key, create_run_key, get_spend
 from aura.harnesses import HARNESSES
 from aura.task import build_prompt
+
+SPEND_WAIT = 12  # seconds: LiteLLM writes spend to its database every 10 s
 
 
 def make_run_dir(task: str) -> Path:
@@ -30,7 +34,7 @@ def make_run_dir(task: str) -> Path:
     return run_dir
 
 
-def compose_run(command: list[str], run_dir: Path, model: str) -> None:
+def compose_run(command: list[str], run_dir: Path, model: str, run_key: str) -> None:
     """
     Run a command in a fresh agent container, copying output to `log.txt`.
 
@@ -38,6 +42,7 @@ def compose_run(command: list[str], run_dir: Path, model: str) -> None:
         command: Harness command to run inside the container.
         run_dir: Run folder whose `workspace` and `task` folders are mounted.
         model: Model name as configured in the LiteLLM gateway.
+        run_key: Gateway key the agent uses for model calls, passed as `RUN_KEY`.
 
     Raises:
         subprocess.CalledProcessError: If the container exits with an error.
@@ -46,7 +51,7 @@ def compose_run(command: list[str], run_dir: Path, model: str) -> None:
         **os.environ,
         "RUN_DIR": str(run_dir),
         "RUN_MODEL": model,
-        "RUN_KEY": os.environ["LITELLM_MASTER_KEY"],  # TODO: stop passing master key
+        "RUN_KEY": run_key,
     }
     compose_file = str(PROJECT_ROOT / "docker-compose.yml")
     docker = ["docker", "compose", "-f", compose_file, "run", "--rm", "-T", "agent"]
@@ -68,7 +73,55 @@ def compose_run(command: list[str], run_dir: Path, model: str) -> None:
         raise subprocess.CalledProcessError(proc.returncode, proc.args)
 
 
-def run(task: str, harness: str, model: str, tier: int, stages: list[str]) -> None:
+def _warn(run_dir: Path, message: str) -> None:
+    """Print a warning and append it to the run's `log.txt`."""
+    line = f"Warning: {message}\n"
+    sys.stderr.write(line)
+    with (run_dir / "log.txt").open("a") as log:
+        log.write(line)
+
+
+def _close_run_key(key: str, run_dir: Path, budget: float, max_duration: str) -> None:
+    """
+    Block a run's key and write what it spent to `cost.json`.
+
+    Gateway failures only give a warning, so they can't hide an error from the run
+    itself; the key's expiry still stops it being used.
+
+    Args:
+        key: The run's key, from `create_run_key`.
+        run_dir: Run folder to write `cost.json` to.
+        budget: The key's budget in USD, recorded alongside the spend.
+        max_duration: The key's expiry, recorded alongside the spend.
+    """
+    try:
+        block_key(key)
+    except RuntimeError as e:
+        _warn(run_dir, f"couldn't block the run's key: {e}")
+    try:
+        time.sleep(SPEND_WAIT)  # let LiteLLM write the run's last spend
+        spend = get_spend(key)
+    except RuntimeError as e:
+        _warn(run_dir, f"couldn't read the run's spend: {e}")
+        return
+    cost = {
+        "key_alias": f"run-{run_dir.name}",
+        "max_budget": budget,
+        "duration": max_duration,
+        "spend_usd": spend,
+    }
+    (run_dir / "cost.json").write_text(json.dumps(cost, indent=2))
+
+
+def run(
+    task: str,
+    harness: str,
+    model: str,
+    tier: int,
+    stages: list[str],
+    budget: float,
+    max_duration: str,
+) -> None:
     """
     Build a task prompt, record the run's settings and run it in the sandbox.
 
@@ -78,6 +131,8 @@ def run(task: str, harness: str, model: str, tier: int, stages: list[str]) -> No
         model: Model name as configured in the LiteLLM gateway.
         tier: Number of task sections to include, in order.
         stages: Names from `STAGES` to produce outputs for.
+        budget: Maximum spend on model calls for the run, in USD.
+        max_duration: How long the run's key is valid, in LiteLLM's format, e.g. "1h".
     """
     prompt = build_prompt(task, tier, stages)
     command = HARNESSES[harness](prompt, model)
@@ -90,8 +145,15 @@ def run(task: str, harness: str, model: str, tier: int, stages: list[str]) -> No
         "stages": stages,
         "harness": harness,
         "model": model,
+        "budget": budget,
+        "duration": max_duration,
         "command": command,
     }
     (run_dir / "run_config.json").write_text(json.dumps(config, indent=2))
-    compose_run(command, run_dir, model)
+    metadata = {"task": task, "harness": harness, "tier": tier}
+    key = create_run_key(run_dir.name, model, budget, max_duration, metadata)
+    try:
+        compose_run(command, run_dir, model, key)
+    finally:
+        _close_run_key(key, run_dir, budget, max_duration)
     print(f"Finished: {run_dir}")

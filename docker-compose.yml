@@ -17,6 +17,9 @@ services:
       NO_PROXY: litellm,litmcp
       DISABLE_AUTOUPDATER: "1"
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+      OPENCODE_DISABLE_MODELS_FETCH: "1"
+      OPENCODE_DISABLE_LSP_DOWNLOAD: "1"
+      OPENCODE_DISABLE_CLAUDE_CODE: "1"
     volumes:
       - ./skills:/skills:ro
       - ${RUN_DIR}/workspace:/workspace
@@ -27,16 +30,34 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
 
+  postgres:
+    image: postgres:17-alpine   # pin the major version to avoid breaking changes
+    environment:
+      POSTGRES_USER: litellm
+      POSTGRES_DB: litellm
+      POSTGRES_PASSWORD: ${LITELLM_DB_PASSWORD:?not set - see README}
+    volumes: ["litellm_db:/var/lib/postgresql/data"]
+    networks: [db_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm -d litellm"]
+      interval: 5s
+      retries: 5
+      start_period: 30s   # first start creates the database before accepting connections
+
   litellm:
     image: ghcr.io/berriai/litellm:v1.100.3
     command: ["--config", "/app/config.yaml", "--port", "4000"]
     # Provider keys are passed through only if set; add any used in litellm/config.yaml
     environment:
-      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:?not set - see README}
-      - AZURE_FOUNDRY_API_KEY
-      - AZURE_FOUNDRY_API_BASE
+      AZURE_FOUNDRY_API_KEY: ${AZURE_FOUNDRY_API_KEY:?not set - see Step 4}
+      AZURE_FOUNDRY_API_BASE: ${AZURE_FOUNDRY_API_BASE:?not set - see Step 4}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?not set - see Step 4}
+      DATABASE_URL: postgresql://litellm:${LITELLM_DB_PASSWORD}@postgres:5432/litellm
+    depends_on:
+      postgres: {condition: service_healthy}
     volumes: ["./litellm/config.yaml:/app/config.yaml:ro"]
-    networks: [sandbox_net, egress_net]
+    networks: [sandbox_net, egress_net, db_net]
+    ports: ["127.0.0.1:4000:4000"]
 
   litmcp:
     build: ./litmcp
@@ -58,3 +79,7 @@ networks:
   sandbox_net:
     internal: true
   egress_net: {}
+  db_net: {internal: true}
+
+volumes:
+  litellm_db: {}
