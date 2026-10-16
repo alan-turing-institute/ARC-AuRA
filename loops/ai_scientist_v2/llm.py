@@ -16,7 +16,7 @@ def query(
     messages: list[dict],
     tools: list[dict] | None = None,
     tool_choice=None,
-) -> litellm.Message:
+) -> "litellm.Message":
     """
     Query the run model with a list of messages, and optional tool calls through the
     gateway; return its reply.
@@ -54,7 +54,8 @@ def call_tool(model: str, messages: list[dict], tool: dict) -> dict:
     Args:
         model: Model name as configured in the LiteLLM gateway.
         messages: List of messages to send to the model.
-        tool: Tool definition {"type": "function", "function": {name, description, parameters}}.
+        tool: Tool definition
+                {"type": "function", "function": {name, description, parameters}}.
 
     Returns:
         json.loads of the tool's arguments, as returned by the model.

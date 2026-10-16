@@ -6,12 +6,12 @@ import json
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-LITMCP_URL = "http://litmcp:8000/mcp"
+_LITMCP_URL = "http://litmcp:8000/mcp"
 
 
 async def _search(query: str, limit: int = 10) -> list[dict]:
     """Call litmcp's search_papers tool over MCP"""
-    async with streamable_http_client(LITMCP_URL) as (read, write):
+    async with streamable_http_client(_LITMCP_URL) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
             result = await session.call_tool(
