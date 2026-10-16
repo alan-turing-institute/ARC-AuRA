@@ -2,7 +2,7 @@
 
 import argparse
 
-from aura.constants import TIERS
+from aura.constants import MODELS, STAGES, TIERS
 from aura.run import HARNESSES, run
 
 
@@ -12,15 +12,22 @@ def main() -> None:
     run_parser = subparsers.add_parser("run", help="Run a task in the agent sandbox.")
     run_parser.add_argument("task", help="Name of a folder in tasks/.")
     run_parser.add_argument("--harness", choices=HARNESSES, default="claude-code")
-    run_parser.add_argument(
-        "--model", choices=["claude-haiku-4-5"], default="claude-haiku-4-5"
-    )
+    run_parser.add_argument("--model", choices=MODELS, default=MODELS[0])
     run_parser.add_argument(
         "--task-tier",
         type=int,
         choices=range(1, len(TIERS) + 1),
         default=1,
         help=f"Number of task sections to include, in order: {', '.join(TIERS)}.",
+    )
+    run_parser.add_argument(
+        "--stages",
+        nargs="+",
+        choices=STAGES,
+        metavar="STAGE",
+        default=list(STAGES),
+        help=f"Stages to produce outputs for, from: {', '.join(STAGES)}. "
+        "Defaults to all.",
     )
     run_parser.add_argument(
         "--budget",
@@ -39,6 +46,7 @@ def main() -> None:
         args.harness,
         args.model,
         args.task_tier,
+        args.stages,
         args.budget,
         args.max_duration,
     )

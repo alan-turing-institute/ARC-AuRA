@@ -19,13 +19,13 @@ def fake_run(tmp_path, monkeypatch):
         seen["limits"] = (max_budget, max_duration)
         return RUN_KEY
 
-    def fake_compose_run(command, run_dir, run_key):
+    def fake_compose_run(command, run_dir, model, run_key):
         seen["run_key"] = run_key
 
     monkeypatch.setenv("LITELLM_MASTER_KEY", "sk-master-secret")
     monkeypatch.setattr(run, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(run, "SPEND_WAIT", 0)
-    monkeypatch.setattr(run, "build_prompt", lambda task, tier: "Do the task.")
+    monkeypatch.setattr(run, "build_prompt", lambda task, tier, stages: "Do the task.")
     monkeypatch.setattr(run, "create_run_key", fake_create_run_key)
     monkeypatch.setattr(run, "block_key", seen["blocked"].append)
     monkeypatch.setattr(run, "get_spend", lambda key: 0.25)
@@ -40,7 +40,13 @@ def cost_json(tmp_path) -> str:
 
 def test_run_uses_its_own_key_and_records_cost(fake_run, tmp_path):
     run.run(
-        "task", "claude-code", "claude-haiku-4-5", 1, budget=0.5, max_duration="10m"
+        "task",
+        "claude-code",
+        "claude-haiku-4-5",
+        1,
+        stages=["research_design"],
+        budget=0.5,
+        max_duration="10m",
     )
 
     assert fake_run["run_key"] == RUN_KEY  # never the master key
@@ -54,13 +60,15 @@ def test_run_uses_its_own_key_and_records_cost(fake_run, tmp_path):
 def test_key_is_blocked_and_cost_recorded_when_run_fails(
     fake_run, tmp_path, monkeypatch
 ):
-    def failing_compose_run(command, run_dir, run_key):
+    def failing_compose_run(command, run_dir, model, run_key):
         raise subprocess.CalledProcessError(1, "docker")
 
     monkeypatch.setattr(run, "compose_run", failing_compose_run)
 
     with pytest.raises(subprocess.CalledProcessError):
-        run.run("task", "claude-code", "claude-haiku-4-5", 1, 2.0, "1h")
+        run.run(
+            "task", "claude-code", "claude-haiku-4-5", 1, ["research_design"], 2.0, "1h"
+        )
 
     assert fake_run["blocked"] == [RUN_KEY]
     assert json.loads(cost_json(tmp_path))["spend_usd"] == 0.25
