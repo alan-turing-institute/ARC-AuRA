@@ -3,36 +3,38 @@ The five ways the search makes a node: draft, debug, improve, tune and ablate.
 
 Prompts are adapted from AI Scientist-v2's `ai_scientist/treesearch/parallel_agent.py`
 and `agent_manager.py` (see LICENSE), without the GPU, PyTorch and HuggingFace
-requirements and with our `metrics.json` contract. Each operator is one model call that
-returns a plan and a complete script.
+requirements, generalised from training ML models to any computational research
+(experiments, analyses, simulations), and with our `metrics.json` contract. Each
+operator is one model call that returns a plan and a complete script.
 """
 
 from ai_scientist_v2.llm import call_tool
 from ai_scientist_v2.nodes import Node
 
-# In stage order; from upstream's `main_stage_goals`, with datasets kept offline
+# In stage order; generalised from upstream's `main_stage_goals`, with data offline
 STAGE_GOALS = {
     "initial_implementation": (
-        "- Focus on getting a basic working implementation\n"
-        "- Use a simple dataset\n"
-        "- Aim for basic functional correctness"
+        "- Get a basic, working first version of the experiment, analysis or "
+        "simulation\n"
+        "- Keep it simple: one dataset, model or setting\n"
+        "- Aim for correctness before anything else"
     ),
     "baseline_tuning": (
-        "- Change hyperparameters such as the number of iterations, learning rate or "
-        "regularisation to improve performance\n"
-        "- DO NOT change the method or model from the previous stage\n"
-        "- Where it makes sense, also test on more datasets: scikit-learn's bundled "
-        "datasets or synthetic data"
+        "- Refine the settings of the current approach so its results are better or "
+        "more reliable, e.g. sample sizes, iterations, parameters, thresholds or "
+        "preprocessing choices\n"
+        "- DO NOT change the approach itself from the previous stage\n"
+        "- Where it makes sense, check that the results hold on other data or settings"
     ),
     "creative_research": (
-        "- Explore novel improvements\n"
-        "- Come up with experiments to reveal new insights\n"
+        "- Explore novel improvements or extensions of the approach\n"
+        "- Come up with experiments or analyses that reveal new insights\n"
         "- Be creative and think outside the box"
     ),
     "ablation_studies": (
-        "- Conduct systematic component analysis that reveals the contribution of each "
-        "part\n"
-        "- Use the same datasets as the previous stage"
+        "- Find out which parts of the approach matter: remove or vary one component, "
+        "assumption or choice at a time and measure its effect on the results\n"
+        "- Keep the data and everything else as in the previous stage"
     ),
 }
 
@@ -69,7 +71,7 @@ _SUBMIT_CHANGE = {
             "properties": {
                 "name": {
                     "type": "string",
-                    "description": "Short name of the change, e.g. 'learning rate'.",
+                    "description": "Short name of the change, e.g. 'sample size'.",
                 },
                 **_SUBMIT_CODE["function"]["parameters"]["properties"],
             },
@@ -95,9 +97,10 @@ def stage_brief(idea: dict, stage: str, timeout: int) -> str:
     return _sections(
         (
             "Your research idea",
-            "You are an ambitious AI researcher who is looking to publish a paper "
-            "that will contribute significantly to the field. You have an idea and "
-            "you want to conduct creative experiments to gain scientific insights.\n\n"
+            "You are an ambitious researcher who is looking to publish a paper that "
+            "will contribute significantly to the field. You have an idea and you "
+            "want to carry out computational experiments or analyses to gain "
+            "scientific insights.\n\n"
             f"Title: {idea['Title']}\n"
             f"Abstract: {idea['Abstract']}\n"
             f"Short Hypothesis: {idea['Short Hypothesis']}\n"
@@ -113,12 +116,13 @@ def stage_brief(idea: dict, stage: str, timeout: int) -> str:
             "downloaded or installed.\n"
             "- Available packages: numpy, pandas, scikit-learn, scipy and "
             "matplotlib.\n"
-            "- For data, use scikit-learn's bundled datasets (e.g. `load_digits`, "
-            "`load_iris`, `load_wine`, `load_breast_cancer`) or synthetic data. "
-            "Don't use `fetch_*` functions, which download.\n"
+            "- Use only data the script can create or that is already installed: "
+            "simulated or synthetic data, or datasets bundled with installed "
+            "packages (e.g. scikit-learn's `load_*` datasets). Don't use functions "
+            "that download data, such as scikit-learn's `fetch_*`.\n"
             f"- It must finish within {timeout} seconds.\n"
             "- The script runs in its own empty folder. Write all files there.\n"
-            "- Print the results, including the evaluation metric.\n"
+            f"- Print the results, including `{metric}`.\n"
             f"- At the end, write `metrics.json` with the metric as a number: "
             f'`{{"{metric}": value}}`.\n'
             "- Save plots as PNG files with distinct, descriptive names.",
@@ -141,9 +145,10 @@ def draft(model: str, brief: str, memory: str) -> tuple[str, str]:
     prompt = _sections(
         (
             "Introduction",
-            "Your first task is to write Python code to implement a solid baseline "
-            "based on your research idea, from data preparation to evaluation and "
-            "visualisation. Focus on getting a simple but working implementation "
+            "Your first task is to write Python code for a solid first version of "
+            "the experiment or analysis in your research idea, from preparing the "
+            "data to computing and visualising the results. Focus on getting a "
+            "simple but working implementation "
             "first, before any sophisticated improvements. We will explore more "
             "advanced variations in later stages.",
         ),
@@ -152,7 +157,7 @@ def draft(model: str, brief: str, memory: str) -> tuple[str, str]:
         (
             "Experiment design sketch guideline",
             "- This first design should be relatively simple, without extensive "
-            "hyperparameter optimisation.\n"
+            "tuning of its settings.\n"
             "- Take the Memory section into consideration.\n"
             "- The plan should be 6-10 sentences.\n"
             "- Don't suggest exploratory data analysis.\n"
@@ -177,7 +182,7 @@ def debug(model: str, brief: str, parent: Node) -> tuple[str, str]:
     prompt = _sections(
         (
             "Introduction",
-            "You are an experienced AI researcher. Your previous code for the "
+            "You are an experienced researcher. Your previous code for the "
             "research experiment had a bug, so based on the information below, you "
             "should revise it in order to fix this bug.",
         ),
@@ -212,7 +217,7 @@ def improve(model: str, brief: str, memory: str, parent: Node) -> tuple[str, str
     prompt = _sections(
         (
             "Introduction",
-            "You are an experienced AI researcher. You are provided with a previously "
+            "You are an experienced researcher. You are provided with a previously "
             "developed implementation. Your task is to improve it based on the "
             "current experimental stage.",
         ),
@@ -232,43 +237,43 @@ def improve(model: str, brief: str, memory: str, parent: Node) -> tuple[str, str
 
 def tune(model: str, brief: str, parent: Node, tried: list[str]) -> tuple[str, str]:
     """
-    Tune one hyperparameter of a working node, different from those already tried.
+    Change one setting of a working node, different from those already tried.
 
     Args:
         model: Model name as configured in the LiteLLM gateway.
         brief: From `stage_brief`.
         parent: The working node to tune.
-        tried: Names of hyperparameters already tuned in this stage.
+        tried: Names of settings already changed in this stage.
 
     Returns:
-        The plan, starting "Hyperparameter: <name>", and the script.
+        The plan, starting "Setting: <name>", and the script.
     """
     prompt = _sections(
         (
             "Introduction",
-            "You are an AI researcher conducting hyperparameter tuning for baseline "
-            "experiments. Based on the current implementation and previous tuning "
-            "attempts, propose and implement ONE new hyperparameter tuning idea to "
-            "see if it improves performance. First check whether simply training "
-            "longer improves performance, then try common hyperparameters, and only "
-            "then method-specific ones.",
+            "You are a researcher refining the settings of a first experiment or "
+            "analysis. Based on the current implementation and previous attempts, "
+            "propose and implement ONE change to a setting, such as a sample size, "
+            "number of iterations, parameter, threshold or preprocessing choice, to "
+            "see if it makes the results better or more reliable. Start with the "
+            "settings most likely to matter.",
         ),
         ("Brief", brief),
         ("Base code you are working on", _code(parent.code)),
-        ("Previous tuning attempts", _tried(tried)),
+        ("Previous attempts", _tried(tried)),
         (
             "Requirements",
-            "- Tune ONE specific hyperparameter, different from previous attempts.\n"
-            "- The plan should be 3-5 sentences on what is tuned and why.\n"
+            "- Change ONE specific setting, different from previous attempts.\n"
+            "- The plan should be 3-5 sentences on what is changed and why.\n"
             "- Submit the complete code, including the parts that didn't change.",
         ),
     )
-    return _ask_change(model, prompt, "Hyperparameter")
+    return _ask_change(model, prompt, "Setting")
 
 
 def ablate(model: str, brief: str, parent: Node, tried: list[str]) -> tuple[str, str]:
     """
-    Remove or change one component of a working node, to measure its contribution.
+    Remove or vary one part of a working node's approach, to measure its effect.
 
     Args:
         model: Model name as configured in the LiteLLM gateway.
@@ -282,19 +287,21 @@ def ablate(model: str, brief: str, parent: Node, tried: list[str]) -> tuple[str,
     prompt = _sections(
         (
             "Introduction",
-            "You are an AI researcher conducting ablation studies. Based on the "
-            "current implementation and previous ablations, propose and implement "
-            "ONE new ablation study that tests a different aspect of the method.",
+            "You are a researcher finding out which parts of your approach matter, "
+            "with an ablation or sensitivity study. Based on the current "
+            "implementation and previous ablations, propose and implement ONE new "
+            "ablation that removes or varies a different component, assumption or "
+            "choice.",
         ),
         ("Brief", brief),
         ("Base code you are working on", _code(parent.code)),
         ("Previous ablations", _tried(tried)),
         (
             "Requirements",
-            "- Ablate ONE specific component or feature.\n"
+            "- Ablate ONE specific component, assumption or choice.\n"
             "- It must be a new idea, not a variation of previous ablations.\n"
-            "- If only one dataset has been used so far, one of the ablations should "
-            "use several (at least 3) different datasets.\n"
+            "- If only one dataset or setting has been used so far, one ablation "
+            "should use several (at least 3) different ones.\n"
             "- The plan should be 3-5 sentences on what is ablated and why.\n"
             "- Submit the complete code, including the parts that didn't change.",
         ),

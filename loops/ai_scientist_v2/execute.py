@@ -125,7 +125,7 @@ def _review_output(idea: dict, node: Node, model: str) -> dict:
         {"is_bug": bool, "summary": str}.
     """
     prompt = (
-        "You are an experienced AI researcher. You have written code for your "
+        "You are an experienced researcher. You have written code for your "
         "research experiment and now need to evaluate the output of the code "
         "execution. Analyse the execution output, determine if there were any bugs, "
         "and provide a summary of the findings.\n\n"
@@ -152,7 +152,7 @@ def _review_plots(idea: dict, node_dir: Path, model: str) -> str | None:
     if not plots:
         return None
     text = (
-        "You are an experienced AI researcher analysing experimental results. You "
+        "You are an experienced researcher analysing experimental results. You "
         "have been provided with plots from an experiment.\n\n"
         f"Research idea:\n{json.dumps(idea, indent=2)}"
     )
