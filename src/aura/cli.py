@@ -46,6 +46,7 @@ def main() -> None:
         args.harness,
         args.model,
         args.task_tier,
+        args.stages,
         args.budget,
         args.max_duration,
     )
