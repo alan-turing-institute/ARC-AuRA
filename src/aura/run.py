@@ -34,19 +34,25 @@ def make_run_dir(task: str) -> Path:
     return run_dir
 
 
-def compose_run(command: list[str], run_dir: Path, run_key: str) -> None:
+def compose_run(command: list[str], run_dir: Path, model: str, run_key: str) -> None:
     """
     Run a command in a fresh agent container, copying output to `log.txt`.
 
     Args:
         command: Harness command to run inside the container.
         run_dir: Run folder whose `workspace` and `task` folders are mounted.
+        model: Model name as configured in the LiteLLM gateway.
         run_key: Gateway key the agent uses for model calls, passed as `RUN_KEY`.
 
     Raises:
         subprocess.CalledProcessError: If the container exits with an error.
     """
-    env = {**os.environ, "RUN_DIR": str(run_dir), "RUN_KEY": run_key}
+    env = {
+        **os.environ,
+        "RUN_DIR": str(run_dir),
+        "RUN_MODEL": model,
+        "RUN_KEY": run_key,
+    }
     compose_file = str(PROJECT_ROOT / "docker-compose.yml")
     docker = ["docker", "compose", "-f", compose_file, "run", "--rm", "-T", "agent"]
     with (
@@ -112,6 +118,7 @@ def run(
     harness: str,
     model: str,
     tier: int,
+    stages: list[str],
     budget: float,
     max_duration: str,
 ) -> None:
@@ -123,10 +130,11 @@ def run(
         harness: Key of `HARNESSES` naming the agent harness.
         model: Model name as configured in the LiteLLM gateway.
         tier: Number of task sections to include, in order.
+        stages: Names from `STAGES` to produce outputs for.
         budget: Maximum spend on model calls for the run, in USD.
         max_duration: How long the run's key is valid, in LiteLLM's format, e.g. "1h".
     """
-    prompt = build_prompt(task, tier)
+    prompt = build_prompt(task, tier, stages)
     command = HARNESSES[harness](prompt, model)
     run_dir = make_run_dir(task)
     (run_dir / "task" / "TASK.md").write_text(prompt)
@@ -134,6 +142,7 @@ def run(
         "image": f"research-sandbox:{AGENT_TAG}",
         "task": task,
         "task_tier": tier,
+        "stages": stages,
         "harness": harness,
         "model": model,
         "budget": budget,
@@ -144,7 +153,7 @@ def run(
     metadata = {"task": task, "harness": harness, "tier": tier}
     key = create_run_key(run_dir.name, model, budget, max_duration, metadata)
     try:
-        compose_run(command, run_dir, key)
+        compose_run(command, run_dir, model, key)
     finally:
         _close_run_key(key, run_dir, budget, max_duration)
     print(f"Finished: {run_dir}")

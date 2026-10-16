@@ -15,7 +15,7 @@ def tasks_dir(tmp_path, monkeypatch):
 
 
 def test_tiers_stack(tasks_dir):
-    prompt = task.build_prompt("task", 2)
+    prompt = task.build_prompt("task", 2, list(task.STAGES))
     assert prompt == (
         "Base\n\n<requirement>\nrequirement text\n</requirement>\n\n"
         "<research_questions>\nresearch_questions text\n</research_questions>"
@@ -25,6 +25,12 @@ def test_tiers_stack(tasks_dir):
 def test_task_instructions_override(tasks_dir):
     (tasks_dir / "task" / "instructions.md").write_text("Own: {task}")
     assert (
-        task.build_prompt("task", 1)
+        task.build_prompt("task", 1, list(task.STAGES))
         == "Own: <requirement>\nrequirement text\n</requirement>"
     )
+
+
+def test_stages_in_canonical_order(tasks_dir):
+    (tasks_dir / "task" / "instructions.md").write_text("{stages}")
+    prompt = task.build_prompt("task", 1, ["report", "lit_review"])
+    assert prompt == "- `lit_review`\n- `report`"

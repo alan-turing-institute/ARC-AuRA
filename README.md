@@ -87,7 +87,7 @@ Agents run in throwaway Docker containers with no internet access. Each run gets
 
 ### First time setup
 
-1. Add the environment variables required by your chosen model. See </litellm/config.yaml> for options. For example, if using `claude-haiku-4-5`, you will need the following keys:
+1. Add the environment variables required by the models you will use. See </litellm/config.yaml> for options; each provider key it reads must also be listed under `litellm`'s `environment` in `docker-compose.yml`. For example, if using `claude-haiku-4-5`, you will need the following keys:
 
 ```bash
 export AZURE_FOUNDRY_API_BASE="https://<resource>.services.ai.azure.com/anthropic"
@@ -163,21 +163,25 @@ colima stop
 Tasks are run with `aura run`:
 
 ```bash
-aura run <task> [--harness claude-code|opencode|ai-scientist-v2] [--model claude-haiku-4-5] [--task-tier 1] [--budget 2.0] [--max-duration 1h]
+aura run <task> [--harness claude-code|opencode] [--model claude-haiku-4-5] [--task-tier 1] \
+  [--stages <stage> ...] [--budget 2.0] [--max-duration 1h]
 ```
 
 For example:
 
 ```bash
 aura run dummy_task
+aura run dataset_similarity --task-tier 2 --stages lit_review research_design
 ```
+
+`--model` accepts any `model_name` in `litellm/config.yaml` and defaults to the first. `--task-tier` chooses the inputs the agent receives; `--stages` chooses the outputs it should produce. The stages are `research_questions`, `lit_review`, `research_design`, `experiments`, `analysis` and `report`. Omitting `--stages` requests all of them (end-to-end). Each stage's output is written to `results/<stage>.<ext>`, or to `results/<stage>/` if it has several files.
 
 The task is passed to the agent inline in its prompt and also mounted read-only at `/task/TASK.md`, so the agent can reread it. Each run creates `runs/<timestamp>-<task>-<n>/` containing:
 
 - `workspace/`: everything the agent wrote
 - `task/TASK.md`: the task exactly as the agent received it
 - `log.txt`: full output, with one JSON event per line for each agent step (tool calls, results, final summary)
-- `run_config.json`: image tag, options and the full harness command
+- `run_config.json`: image tag, options (including stages) and the full harness command
 - `cost.json`: the run's key alias, budget, expiry and final spend in USD
 
 Each run gets a fresh gateway key, limited to the chosen model, `--budget` (USD) and `--max-duration` (in LiteLLM's format, e.g. `30m` or `2h`). If the run reaches either limit, the gateway refuses further model calls and the run ends with an error. The key is blocked when the run ends, however it ends, and its spend is recorded about 12 seconds later, once LiteLLM has saved it. Budgets can be overshot slightly, by whatever the run spends in the last few seconds before the limit is noticed.
@@ -228,7 +232,7 @@ If making changes to the sandbox, some files require extra changes being made el
 | If you've changed | Then |
 |---|---|
 | `agent/Dockerfile` or `agent/requirements.txt` | increment `AGENT_TAG` in `.env`, then run `./scripts/build.sh` |
-| `litellm/config.yaml` | run `docker compose restart litellm` |
+| `litellm/config.yaml` | run `docker compose restart litellm`. If adding a provider, also add its key variable names to `litellm`'s `environment` in `docker-compose.yml` and run `docker compose up -d litellm` |
 | Anything in `litmcp/` | run `./scripts/build.sh`, then `docker compose up -d litmcp` (add or change its dependencies in the `litmcp` group in `pyproject.toml`, then `uv sync`; pre-commit regenerates `litmcp/requirements.txt`) |
 | Keys in `~/.zshrc` | run `source ~/.zshrc`, then `docker compose up -d litellm litmcp` |
 
@@ -253,7 +257,7 @@ KEY=$(curl -s localhost:4000/key/generate -H "Authorization: Bearer $LITELLM_MAS
 RUN_DIR="$TMPDIR" docker compose run --rm -T agent curl -s http://litellm:4000/health/liveliness
 
 # 2. Model call works → a reply from the model
-RUN_KEY="$KEY" RUN_DIR="$TMPDIR" docker compose run --rm -T agent claude -p "Say hello" < /dev/null
+RUN_MODEL=claude-haiku-4-5 RUN_KEY="$KEY" RUN_DIR="$TMPDIR" docker compose run --rm -T agent claude -p "Say hello" < /dev/null
 
 # 3. Blocked site via proxy → 403
 RUN_DIR="$TMPDIR" docker compose run --rm -T agent curl -sS https://example.com

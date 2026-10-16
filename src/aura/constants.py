@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import yaml
 from dotenv import dotenv_values
 
 # Project Root
@@ -10,7 +11,19 @@ TASKS_DIR = PROJECT_ROOT / "tasks"
 
 # Project Files
 MCP_CONFIG = PROJECT_ROOT / "mcp.json"
+LITELLM_CONFIG = PROJECT_ROOT / "litellm" / "config.yaml"
 
 # Constants
 AGENT_TAG = dotenv_values(PROJECT_ROOT / ".env")["AGENT_TAG"]
+MODELS = tuple(
+    m["model_name"] for m in yaml.safe_load(LITELLM_CONFIG.read_text())["model_list"]
+)
 TIERS = ("requirement", "research_questions", "lit_review")
+STAGES = (
+    "research_questions",
+    "lit_review",
+    "research_design",
+    "experiments",
+    "analysis",
+    "report",
+)
