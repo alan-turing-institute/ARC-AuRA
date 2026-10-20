@@ -163,7 +163,7 @@ colima stop
 Tasks are run with `aura run`:
 
 ```bash
-aura run <task> [--harness claude-code|opencode|ai-scientist-v2] [--model claude-haiku-4-5] \
+aura run <task> [--harness claude-code|opencode|ai-scientist-v2] [--model claude-opus-5-5] \
   [--task-tier 1] [--stages <stage> ...] [--budget 2.0] [--max-duration 1h]
 ```
 
