@@ -33,7 +33,7 @@ def _opencode_config(model: str) -> dict:
     }
 
 
-def opencode_command(prompt: str, model: str) -> list[str]:
+def opencode_command(prompt: str, model: str, stages: list[str]) -> list[str]:
     """
     Build a headless OpenCode command connected to the servers in `mcp.json`.
 
@@ -43,6 +43,7 @@ def opencode_command(prompt: str, model: str) -> list[str]:
     Args:
         prompt: Full task prompt.
         model: Model name as configured in the LiteLLM gateway.
+        stages: Unused, as the prompt already lists them.
 
     Returns:
         The command to run inside the agent container.
