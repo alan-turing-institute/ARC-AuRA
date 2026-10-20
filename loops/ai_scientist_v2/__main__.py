@@ -1,20 +1,12 @@
 """Main entry point for the AI scientist v2 harness."""
 
 import argparse
+import json
 from pathlib import Path
 
+from ai_scientist_v2.idea import generate_idea
 from ai_scientist_v2.nodes import save_bests
 from ai_scientist_v2.search import run_stages
-
-_TEST_IDEA = {
-    "Title": "Does k-means++ initialisation beat random initialisation?",
-    "Short Hypothesis": "k-means++ initialisation reaches lower inertia than random "
-    "initialisation on well-separated clusters.",
-    "Abstract": "We compare k-means initialisation methods on synthetic blobs.",
-    "Experiments": "Generate blobs with scikit-learn's make_blobs: run k-means with "
-    "each initialisation over several seeds; report the mean inertia.",
-    "Metric": {"name": "inertia", "higher_is_better": False},
-}
 
 
 def main(args: argparse.Namespace) -> None:
@@ -22,6 +14,7 @@ def main(args: argparse.Namespace) -> None:
     config = {
         "model": args.model,
         "timeout": 600,
+        "num_reflections": 5,
         "num_drafts": 3,
         "debug_prob": 0.5,
         "max_debug_depth": 3,
@@ -33,8 +26,12 @@ def main(args: argparse.Namespace) -> None:
         },
     }
     workdir = Path("/workspace")
-    _, bests = run_stages(_TEST_IDEA, config, workdir)
-    save_bests(bests, workdir / "results" / "best_nodes.json")
+    results = workdir / "results"
+    results.mkdir(parents=True, exist_ok=True)
+    idea = generate_idea(args.prompt, config)
+    (results / "idea.json").write_text(json.dumps(idea, indent=2))
+    _, bests = run_stages(idea, config, workdir)
+    save_bests(bests, results / "best_nodes.json")
 
 
 if __name__ == "__main__":
