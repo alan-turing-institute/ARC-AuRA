@@ -2,7 +2,8 @@
 The four-stage tree search over nodes.
 
 Adapted from AI Scientist-v2's `ai_scientist/treesearch/agent_manager.py` (stages and
-their completion) and `parallel_agent.py` (`_select_parallel_nodes`); see LICENSE.
+their completion), `parallel_agent.py` (`_select_parallel_nodes`) and `journal.py`
+(`get_best_node`); see LICENSE.
 
 `cfg` keys used here: "model", "timeout", "num_drafts", "debug_prob",
 "max_debug_depth" and "stage_iters" (iteration cap per stage name).
@@ -11,8 +12,54 @@ their completion) and `parallel_agent.py` (`_select_parallel_nodes`); see LICENS
 from pathlib import Path
 from random import Random
 
-# import ai_scientist_v2.operators as ops
-from ai_scientist_v2.nodes import Node
+import ai_scientist_v2.operators as ops
+from ai_scientist_v2.execute import evaluate
+from ai_scientist_v2.llm import BudgetExceeded, call_tool
+from ai_scientist_v2.nodes import Node, emit, save_journal, summarise_journal
+
+_SELECT_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "select_best_implementation",
+        "description": "Select the best implementation based on all the evidence.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "selected_id": {
+                    "type": "string",
+                    "description": "ID of the selected best implementation.",
+                },
+                "reasoning": {
+                    "type": "string",
+                    "description": "Why this implementation was chosen.",
+                },
+            },
+            "required": ["selected_id", "reasoning"],
+        },
+    },
+}
+
+_STAGE_DONE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "evaluate_stage_completion",
+        "description": "Evaluate whether the current stage is complete.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "is_complete": {
+                    "type": "boolean",
+                    "description": "Whether the current stage is complete.",
+                },
+                "reasoning": {
+                    "type": "string",
+                    "description": "Reasoning for the decision.",
+                },
+            },
+            "required": ["is_complete", "reasoning"],
+        },
+    },
+}
 
 
 def select_node(
@@ -37,17 +84,17 @@ def select_node(
     Returns:
         The operator name and the node to apply it to (None for a draft).
     """
-    # 1. Stage 1 ("initial_implementation", not "1") with fewer than
-    #    cfg["num_drafts"] drafts (op == "draft") -> ("draft", None).
-    # 2. With probability cfg["debug_prob"] (rng.random() < ...), debug a buggy leaf:
-    #    is_bug, no child in `nodes` (no n.parent_id == its id), and
-    #    debug_depth < cfg["max_debug_depth"]. Pick one with rng.choice ->
-    #    ("debug", leaf). If there are none, fall through.
-    # 3. Otherwise by stage:
-    #    - baseline_tuning -> ("tune", start); ablation_studies -> ("ablate", start)
-    #    - initial_implementation, creative_research -> ("improve", best), or
-    #      ("draft", None) if best is None (only possible in stage 1)
-    pass
+    drafts = sum(n.op == "draft" for n in nodes)
+    if stage == "initial_implementation" and drafts < cfg["num_drafts"]:
+        return "draft", None
+    leaves = _buggy_leaves(nodes, cfg["max_debug_depth"])
+    if rng.random() < cfg["debug_prob"] and leaves:
+        return "debug", rng.choice(leaves)
+    if stage == "baseline_tuning":
+        return "tune", start
+    if stage == "ablation_studies":
+        return "ablate", start
+    return ("improve", best) if best else ("draft", None)
 
 
 def best_node(model: str, idea: dict, nodes: list[Node]) -> Node | None:
@@ -62,14 +109,30 @@ def best_node(model: str, idea: dict, nodes: list[Node]) -> Node | None:
     Returns:
         The best working node, or None if none works.
     """
-    # - Keep only working nodes (not is_bug). None -> return None; one -> return it.
-    # - Otherwise call_tool (from ai_scientist_v2.llm) with a forced tool, e.g.
-    #   `_SELECT_TOOL` "select_best_node" with {"id", "reason"}. The prompt lists
-    #   each node's id, metric, summary and plot_feedback (upstream: `_select_best`
-    #   in parallel_agent.py).
-    # - If the returned id isn't a candidate, fall back to max/min by metric,
-    #   using idea["Metric"]["higher_is_better"].
-    pass
+    working = [n for n in nodes if not n.is_bug]
+    if len(working) <= 1:
+        return working[0] if working else None
+    metric = idea["Metric"]
+    direction = "higher" if metric["higher_is_better"] else "lower"
+    candidates = "\n\n".join(
+        f"ID: {n.id}\nMetric: {n.metric}\nReview: {n.summary}\n"
+        f"Plot feedback: {n.plot_feedback or 'none'}"
+        for n in working
+    )
+    prompt = (
+        "You are an experienced researcher evaluating different implementations of "
+        "an experiment to select the best one. You should consider all aspects, "
+        "including the metric, the review of each run's output and the feedback on "
+        "its plots.\n\n"
+        "Select the best implementation from the candidates below, considering all "
+        f"available evidence. The metric is `{metric['name']}`, and {direction} is "
+        "better, but avoid relying too heavily on it alone, because it may not be "
+        "directly comparable across implementations.\n\n"
+        f"Candidates:\n{candidates}"
+    )
+    reply = call_tool(model, [{"role": "user", "content": prompt}], _SELECT_TOOL)
+    chosen = [n for n in working if n.id == reply["selected_id"]]
+    return chosen[0] if chosen else _best_metric(working, metric["higher_is_better"])
 
 
 def stage_done(
@@ -94,12 +157,15 @@ def stage_done(
     Returns:
         Whether the stage has finished.
     """
-    # - Always done at the cap: len(nodes) >= cfg["stage_iters"][stage].
-    # - initial_implementation: done at the first working node.
-    # - baseline_tuning: done if a working node beats start.metric (in the
-    #   direction of higher_is_better) and judged_done.
-    # - creative_research, ablation_studies: only the cap.
-    pass
+    working = [n for n in nodes if not n.is_bug]
+    if len(nodes) >= cfg["stage_iters"][stage]:
+        return True
+    if stage == "initial_implementation":
+        return bool(working)
+    if stage == "baseline_tuning":
+        beats = [n for n in working if _beats(n, start, higher_is_better)]
+        return judged_done and bool(beats)
+    return False
 
 
 def run_stages(
@@ -107,6 +173,8 @@ def run_stages(
 ) -> tuple[list[Node], dict[str, Node]]:
     """
     Run the four stages, each building on the previous stage's best node.
+
+    Stops early if stage 1 finds no working node, or if the run's budget is spent.
 
     Args:
         idea: The research idea, from `finalize_idea`, including its "Metric".
@@ -117,27 +185,103 @@ def run_stages(
     Returns:
         All nodes, and each finished stage's best node by stage name.
     """
-    # rng = Random(); all_nodes = []; bests = {}; start = None
-    # For each stage in ops.STAGE_GOALS (in order):
-    #   brief = ops.stage_brief(idea, stage, cfg["timeout"]); nodes = []
-    #   Loop:
-    #     best = best_node(model, idea, nodes + [start] if start else nodes)
-    #     op, parent = select_node(stage, nodes, start, best, cfg, rng)
-    #     plan, code = _propose(op, cfg["model"], brief, summarise_journal(...),
-    #                           parent, _tried(nodes))
-    #     node = _make_node(str(len(all_nodes)), stage, op, parent, plan, code)
-    #     evaluate(idea, node, workdir / "tree" / node.id, idea["Metric"]["name"],
-    #              cfg["timeout"], cfg["model"])
-    #     Append to nodes and all_nodes; save_journal(all_nodes, .../journal.json);
-    #     print one JSON "node" event line (see the plan's Outputs).
-    #     judged = stage == "baseline_tuning" and not node.is_bug and
-    #              _tuning_done(model, idea, nodes)   # skip the call otherwise
-    #     Break if stage_done(...).
-    #   bests[stage] = best_node(...) over nodes + start; print a "stage_end" event;
-    #   start = bests[stage]. If start is None (stage 1 found nothing), stop.
-    # Catch BudgetExceeded around the loop: stop and return what there is; the
-    # journal is already saved.
-    pass
+    rng = Random()
+    tree = workdir / "tree"
+    tree.mkdir(parents=True, exist_ok=True)
+    all_nodes, bests, start = [], {}, None
+    try:
+        for stage in ops.STAGE_GOALS:
+            start = _run_stage(stage, start, idea, cfg, rng, all_nodes, tree)
+            if start is None:
+                break
+            bests[stage] = start
+    except BudgetExceeded:
+        emit("budget_exceeded", nodes=len(all_nodes))
+    return all_nodes, bests
+
+
+def _run_stage(
+    stage: str,
+    start: Node | None,
+    idea: dict,
+    cfg: dict,
+    rng: Random,
+    all_nodes: list[Node],
+    tree: Path,
+) -> Node | None:
+    """
+    Grow the tree for one stage until `stage_done`.
+
+    Args:
+        stage: Key of `ops.STAGE_GOALS`.
+        start: Previous stage's best node; None in stage 1.
+        idea: The research idea, from `finalize_idea`, including its "Metric".
+        cfg: All keys listed in the module docstring.
+        rng: For `select_node`.
+        all_nodes: Every node so far; new nodes are appended, so they survive a
+            `BudgetExceeded` raised mid-stage.
+        tree: Folder for the nodes' folders and `journal.json`.
+
+    Returns:
+        The stage's best node, or None if none works.
+    """
+    model, timeout = cfg["model"], cfg["timeout"]
+    brief = ops.stage_brief(idea, stage, timeout)
+    nodes, best, done = [], start, False
+    while not done:
+        op, parent = select_node(stage, nodes, start, best, cfg, rng)
+        memory = summarise_journal(all_nodes)
+        plan, code = _propose(op, model, brief, memory, parent, _tried(nodes))
+        node = _make_node(f"{len(all_nodes):03d}", stage, op, parent, plan, code)
+        evaluate(idea, node, tree / node.id, idea["Metric"]["name"], timeout, model)
+        nodes.append(node)
+        all_nodes.append(node)
+        save_journal(all_nodes, tree / "journal.json")
+        emit(
+            "node",
+            stage=stage,
+            id=node.id,
+            parent_id=node.parent_id,
+            op=op,
+            is_bug=node.is_bug,
+            metric=node.metric,
+            summary=node.summary,
+        )
+        best = best_node(model, idea, nodes + ([start] if start else []))
+        # Only ask the model once tuning has found a new best, as upstream does
+        judged = (
+            stage == "baseline_tuning"
+            and best is not start
+            and _tuning_done(model, best)
+        )
+        done = stage_done(
+            stage, nodes, start, cfg, idea["Metric"]["higher_is_better"], judged
+        )
+    emit("stage_end", stage=stage, best=best.id if best else None)
+    return best
+
+
+def _buggy_leaves(nodes: list[Node], max_debug_depth: int) -> list[Node]:
+    """Buggy nodes with no children yet, and debug depth within the limit."""
+    parents = {n.parent_id for n in nodes}
+    return [
+        n
+        for n in nodes
+        if n.is_bug and n.id not in parents and n.debug_depth <= max_debug_depth
+    ]
+
+
+def _beats(node: Node, other: Node, higher_is_better: bool) -> bool:
+    """Whether a node's metric is strictly better than another's."""
+    return (
+        node.metric > other.metric if higher_is_better else node.metric < other.metric
+    )
+
+
+def _best_metric(nodes: list[Node], higher_is_better: bool) -> Node:
+    """The node with the best metric, in the metric's direction."""
+    pick = max if higher_is_better else min
+    return pick(nodes, key=lambda n: n.metric)
 
 
 def _propose(
@@ -162,8 +306,17 @@ def _propose(
     Returns:
         The plan and the script.
     """
-    # A match on op, e.g. case "tune": return ops.tune(model, brief, parent, tried)
-    pass
+    match op:
+        case "draft":
+            return ops.draft(model, brief, memory)
+        case "debug":
+            return ops.debug(model, brief, parent)
+        case "improve":
+            return ops.improve(model, brief, memory, parent)
+        case "tune":
+            return ops.tune(model, brief, parent, tried)
+        case "ablate":
+            return ops.ablate(model, brief, parent, tried)
 
 
 def _make_node(
@@ -183,29 +336,46 @@ def _make_node(
     Returns:
         The node, with parent_id and debug_depth set.
     """
-    # debug_depth: parent.debug_depth + 1 if op == "debug", else 0.
-    pass
+    return Node(
+        id=node_id,
+        stage=stage,
+        op=op,
+        parent_id=parent.id if parent else None,
+        plan=plan,
+        code=code,
+        debug_depth=parent.debug_depth + 1 if op == "debug" else 0,
+    )
 
 
 def _tried(nodes: list[Node]) -> list[str]:
     """Names of the settings or ablations tried: first lines of their plans."""
-    # [n.plan.split("\n")[0] for n in nodes if n.op in ("tune", "ablate")]
-    pass
+    return [n.plan.split("\n")[0] for n in nodes if n.op in ("tune", "ablate")]
 
 
-def _tuning_done(model: str, idea: dict, nodes: list[Node]) -> bool:
+def _tuning_done(model: str, best: Node) -> bool:
     """
-    Ask the model whether baseline tuning has gone far enough.
+    Ask the model whether baseline tuning has gone far enough, from its best node.
 
     Args:
         model: Model name as configured in the LiteLLM gateway.
-        idea: The research idea, from `finalize_idea`.
-        nodes: This stage's nodes.
+        best: The stage's best node, which beats the stage's start node.
 
     Returns:
         The model's verdict.
     """
-    # call_tool with a forced tool, e.g. "evaluate_stage" with {"is_complete",
-    # "reason"}; the prompt gives the stage goals (ops.STAGE_GOALS) and
-    # summarise_journal(nodes). Upstream: `_check_substage_completion`.
-    pass
+    prompt = (
+        "Evaluate if the baseline tuning stage is complete, based on the following "
+        "evidence from its best implementation.\n\n"
+        f"Plan: {best.plan}\n"
+        f"Metric: {best.metric}\n"
+        f"Review: {best.summary}\n"
+        f"Plot feedback: {best.plot_feedback or 'none'}\n\n"
+        f"The stage's goals:\n{ops.STAGE_GOALS['baseline_tuning']}\n\n"
+        "Requirements for completion:\n"
+        "1. The results should be stable and reliable\n"
+        "2. Where it makes sense, they should hold on more than one dataset or "
+        "setting\n"
+        "3. No major instabilities or issues in the plots"
+    )
+    reply = call_tool(model, [{"role": "user", "content": prompt}], _STAGE_DONE_TOOL)
+    return reply["is_complete"]

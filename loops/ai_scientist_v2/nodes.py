@@ -49,6 +49,11 @@ def save_journal(nodes: list[Node], path: Path) -> None:
     path.write_text(json.dumps([asdict(node) for node in nodes], indent=2))
 
 
+def emit(event: str, **fields) -> None:
+    """Print one JSON event line to stdout, which the launcher saves in `log.txt`."""
+    print(json.dumps({"type": event, **fields}), flush=True)
+
+
 def summarise_journal(nodes: list[Node], limit: int = 10) -> str:
     """One line per recent node: id, operator, metric or "buggy", and summary."""
     return "\n".join(
