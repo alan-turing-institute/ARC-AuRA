@@ -49,7 +49,10 @@ def query(
 
 def call_tool(model: str, messages: list[dict], tool: dict) -> dict:
     """
-    Forces one function call with tool_choice, and returns json.loads of it arguments.
+    Asks the model to call one tool, and returns json.loads of its arguments.
+
+    Some models, e.g. Opus 5.5, reject a forced tool_choice, so the system prompt
+    asks for the call instead.
 
     Args:
         model: Model name as configured in the LiteLLM gateway.
@@ -60,8 +63,11 @@ def call_tool(model: str, messages: list[dict], tool: dict) -> dict:
     Returns:
         json.loads of the tool's arguments, as returned by the model.
     """
-    choice = {"type": "function", "function": {"name": tool["function"]["name"]}}
-    message = query(model=model, messages=messages, tools=[tool], tool_choice=choice)
+    name = tool["function"]["name"]
+    system = {"role": "system", "content": f"Reply by calling the `{name}` tool."}
+    message = query(model, [system, *messages], tools=[tool], tool_choice="auto")
+    if not message.tool_calls:
+        raise ValueError(f"Model replied without calling `{name}`: {message.content}")
     return json.loads(message.tool_calls[0].function.arguments)
 
 

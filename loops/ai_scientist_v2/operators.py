@@ -123,8 +123,10 @@ def stage_brief(idea: dict, stage: str, timeout: int) -> str:
             f"- It must finish within {timeout} seconds.\n"
             "- The script runs in its own empty folder. Write all files there.\n"
             f"- Print the results, including `{metric}`.\n"
-            f"- At the end, write `metrics.json` with the metric as a number: "
-            f'`{{"{metric}": value}}`.\n'
+            f"- At the end, write `metrics.json` with the metric as a top-level "
+            f'number: `{{"{metric}": value}}`. If the script runs several settings, '
+            "use the value for the main one; other results can go under other "
+            "keys.\n"
             "- Save plots as PNG files with distinct, descriptive names.",
         ),
     )

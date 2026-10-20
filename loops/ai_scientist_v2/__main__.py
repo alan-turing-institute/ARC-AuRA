@@ -3,6 +3,7 @@
 import argparse
 from pathlib import Path
 
+from ai_scientist_v2.nodes import save_bests
 from ai_scientist_v2.search import run_stages
 
 _TEST_IDEA = {
@@ -16,14 +17,14 @@ _TEST_IDEA = {
 }
 
 
-def main(args: argparse.Namespace):
+def main(args: argparse.Namespace) -> None:
     """Run the AI scientist v2 harness with the given arguments."""
     config = {
         "model": args.model,
         "timeout": 600,
         "num_drafts": 3,
         "debug_prob": 0.5,
-        "max_debuck_depth": 3,
+        "max_debug_depth": 3,
         "stage_iters": {
             "initial_implementation": 6,
             "baseline_tuning": 3,
@@ -31,7 +32,9 @@ def main(args: argparse.Namespace):
             "ablation_studies": 4,
         },
     }
-    run_stages(_TEST_IDEA, config, workdir=Path("/workspace"))
+    workdir = Path("/workspace")
+    _, bests = run_stages(_TEST_IDEA, config, workdir)
+    save_bests(bests, workdir / "results" / "best_nodes.json")
 
 
 if __name__ == "__main__":
@@ -50,4 +53,4 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    main(**vars(args))
+    main(args)

@@ -49,6 +49,21 @@ def save_journal(nodes: list[Node], path: Path) -> None:
     path.write_text(json.dumps([asdict(node) for node in nodes], indent=2))
 
 
+def save_bests(bests: dict[str, Node], path: Path) -> None:
+    """Write each stage's best node's ID, folder, metric and summary to JSON."""
+    summary = {
+        stage: {
+            "id": n.id,
+            "folder": f"tree/{n.id}",
+            "metric": n.metric,
+            "summary": n.summary,
+        }
+        for stage, n in bests.items()
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(summary, indent=2))
+
+
 def emit(event: str, **fields) -> None:
     """Print one JSON event line to stdout, which the launcher saves in `log.txt`."""
     print(json.dumps({"type": event, **fields}), flush=True)
