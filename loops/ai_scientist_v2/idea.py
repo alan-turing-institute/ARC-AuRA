@@ -11,7 +11,7 @@ the idea must be finalised).
 
 import json
 
-from ai_scientist_v2.literature import search_papers
+from ai_scientist_v2.literature import get_paper, search_papers
 from ai_scientist_v2.llm import call_tool, query
 from ai_scientist_v2.nodes import emit
 
@@ -109,7 +109,14 @@ _REFLECTION_PROMPT = (
 )
 
 
-def generate_idea(prompt: str, cfg: dict) -> dict:
+_TASK_PROMPT = (
+    "{prompt}\n\n"
+    "Propose a research idea for this task. If it already includes research "
+    "questions or a literature review, build on them rather than redoing them."
+)
+
+
+def generate_idea(prompt: str, cfg: dict) -> tuple[dict, list[dict]]:
     """
     Develop one research idea for the task, searching the literature between rounds.
 
@@ -120,26 +127,29 @@ def generate_idea(prompt: str, cfg: dict) -> dict:
         cfg: Uses "model", "timeout" and "num_reflections".
 
     Returns:
-        The idea, with the fields of `_FINALIZE_TOOL`.
+        The idea, with the fields of `_FINALIZE_TOOL`, and the papers it relies on,
+        with their abstracts. Papers the searches didn't return are left out.
     """
     model, rounds = cfg["model"], cfg["num_reflections"]
     messages = [
         {"role": "system", "content": _SYSTEM_PROMPT.format(timeout=cfg["timeout"])},
-        {"role": "user", "content": f"{prompt}\n\nPropose a research idea for this."},
+        {"role": "user", "content": _TASK_PROMPT.format(prompt=prompt)},
     ]
+    seen = set()
     for round_num in range(1, rounds):
         message = query(model, messages, [_SEARCH_TOOL, _FINALIZE_TOOL], "auto")
         messages.append(message.model_dump(exclude_none=True))
         for call in message.tool_calls or []:
             arguments = json.loads(call.function.arguments)
             if call.function.name == "finalize_idea":
-                return _finalised(arguments, round_num)
+                return _finalised(arguments, round_num, seen)
             papers = search_papers(arguments["query"])
+            seen |= {p["paper_id"] for p in papers}
             emit("idea_search", query=arguments["query"], results=len(papers))
             messages.append(_tool_result(call.id, papers))
         reflection = _REFLECTION_PROMPT.format(round=round_num + 1, rounds=rounds)
         messages.append({"role": "user", "content": reflection})
-    return _finalised(call_tool(model, messages, _FINALIZE_TOOL), rounds)
+    return _finalised(call_tool(model, messages, _FINALIZE_TOOL), rounds, seen)
 
 
 def _tool_result(call_id: str, papers: list[dict]) -> dict:
@@ -147,7 +157,7 @@ def _tool_result(call_id: str, papers: list[dict]) -> dict:
     return {"role": "tool", "tool_call_id": call_id, "content": json.dumps(papers)}
 
 
-def _finalised(idea: dict, round_num: int) -> dict:
-    """Emit the finalised idea's event, and return the idea."""
+def _finalised(idea: dict, round_num: int, seen: set[str]) -> tuple[dict, list[dict]]:
+    """Emit the idea's event; return it with the papers it cites that were seen."""
     emit("idea", round=round_num, **idea)
-    return idea
+    return idea, [get_paper(pid) for pid in idea["Papers"] if pid in seen]
