@@ -216,7 +216,7 @@ def _buggy_leaves(nodes: list[Node], max_debug_depth: int) -> list[Node]:
     return [
         n
         for n in nodes
-        if n.is_bug and n.id not in parents and n.debug_depth <= max_debug_depth
+        if n.is_bug and n.id not in parents and n.debug_depth < max_debug_depth
     ]
 
 
