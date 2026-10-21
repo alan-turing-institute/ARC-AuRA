@@ -45,6 +45,9 @@ _FIELDS = {
     "Risk Factors and Limitations": "Potential risks and limitations of the proposal.",
 }
 
+# Tool properties can't contain spaces, so the tool uses snake_case names
+_KEYS = {name.lower().replace(" ", "_"): name for name in _FIELDS}
+
 _FINALIZE_TOOL = {
     "type": "function",
     "function": {
@@ -54,8 +57,8 @@ _FINALIZE_TOOL = {
             "type": "object",
             "properties": {
                 **{
-                    name: {"type": "string", "description": text}
-                    for name, text in _FIELDS.items()
+                    key: {"type": "string", "description": _FIELDS[name]}
+                    for key, name in _KEYS.items()
                 },
                 "Metric": {
                     "type": "object",
@@ -76,7 +79,7 @@ _FINALIZE_TOOL = {
                     "description": "The paper_ids of the papers the idea relies on.",
                 },
             },
-            "required": [*_FIELDS, "Metric", "Papers"],
+            "required": [*_KEYS, "Metric", "Papers"],
         },
     },
 }
@@ -127,8 +130,9 @@ def generate_idea(prompt: str, cfg: dict) -> tuple[dict, list[dict]]:
         cfg: Uses "model", "timeout" and "num_reflections".
 
     Returns:
-        The idea, with the fields of `_FINALIZE_TOOL`, and the papers it relies on,
-        with their abstracts. Papers the searches didn't return are left out.
+        The idea, with the fields in `_FIELDS`, "Metric" and "Papers", and the papers
+        it relies on, with their abstracts. Papers the searches didn't return are
+        left out.
     """
     model, rounds = cfg["model"], cfg["num_reflections"]
     messages = [
@@ -157,7 +161,10 @@ def _tool_result(call_id: str, papers: list[dict]) -> dict:
     return {"role": "tool", "tool_call_id": call_id, "content": json.dumps(papers)}
 
 
-def _finalised(idea: dict, round_num: int, seen: set[str]) -> tuple[dict, list[dict]]:
+def _finalised(
+    arguments: dict, round_num: int, seen: set[str]
+) -> tuple[dict, list[dict]]:
     """Emit the idea's event; return it with the papers it cites that were seen."""
+    idea = {_KEYS.get(key, key): value for key, value in arguments.items()}
     emit("idea", round=round_num, **idea)
     return idea, [get_paper(pid) for pid in idea["Papers"] if pid in seen]
