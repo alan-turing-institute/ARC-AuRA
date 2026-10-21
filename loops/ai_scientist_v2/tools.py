@@ -164,13 +164,14 @@ FIND_CITATION = _function(
     {
         "done": _boolean("true if no more citations are needed."),
         "description": _string(
-            "The purpose of the citation, and what you are looking for."
+            "The purpose of the citation, and what you are looking for. Empty if done."
         ),
         "query": _string(
-            "The search query to find the paper, e.g. 'attention is all you need'."
+            "The search query to find the paper, e.g. 'attention is all you need'. "
+            "Empty if done."
         ),
     },
-    ["done"],
+    ["done", "description", "query"],
 )
 
 SELECT_CITATIONS = _function(
