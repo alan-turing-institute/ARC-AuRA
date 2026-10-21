@@ -1,7 +1,7 @@
 from aura.constants import MCP_CONFIG
 
 
-def claude_code_command(prompt: str, model: str) -> list[str]:
+def claude_code_command(prompt: str, model: str, stages: list[str]) -> list[str]:
     """
     Build a headless Claude Code command connected to the servers in `mcp.json`.
 
@@ -11,6 +11,7 @@ def claude_code_command(prompt: str, model: str) -> list[str]:
     Args:
         prompt: Full task prompt.
         model: Model name as configured in the LiteLLM gateway.
+        stages: Unused, as the prompt already lists them.
 
     Returns:
         The command to run inside the agent container.

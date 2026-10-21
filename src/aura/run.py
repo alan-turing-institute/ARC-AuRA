@@ -135,7 +135,7 @@ def run(
         max_duration: How long the run's key is valid, in LiteLLM's format, e.g. "1h".
     """
     prompt = build_prompt(task, tier, stages)
-    command = HARNESSES[harness](prompt, model)
+    command = HARNESSES[harness](prompt, model, stages)
     run_dir = make_run_dir(task)
     (run_dir / "task" / "TASK.md").write_text(prompt)
     config = {

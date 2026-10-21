@@ -24,9 +24,11 @@ services:
       - ./skills:/skills:ro
       - ${RUN_DIR}/workspace:/workspace
       - ${RUN_DIR}/task:/task:ro
+      - ./loops:/loops:ro
     cpus: 4
     mem_limit: 16g
     pids_limit: 512
+    init: true                   # reaps orphaned processes, e.g. killed experiment workers
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
 
