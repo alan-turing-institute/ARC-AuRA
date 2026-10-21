@@ -6,6 +6,8 @@ import os
 
 import litellm
 
+from ai_scientist_v2 import prompts
+
 # Room for a full experiment script and its plan, which can pass 8k tokens
 _MAX_TOKENS = 32000
 
@@ -60,8 +62,8 @@ def call_tool(model: str, messages: list[dict], tool: dict) -> dict:
     """
     Asks the model to call one tool, and returns json.loads of its arguments.
 
-    Some models, e.g. Opus 5.5, reject a forced tool_choice, so the system prompt
-    asks for the call instead.
+    Some models, e.g. Opus 5.5, reject a forced tool_choice, so a system message asks
+    for the call instead.
 
     Args:
         model: Model name as configured in the LiteLLM gateway.
@@ -73,7 +75,7 @@ def call_tool(model: str, messages: list[dict], tool: dict) -> dict:
         json.loads of the tool's arguments, as returned by the model.
     """
     name = tool["function"]["name"]
-    system = {"role": "system", "content": f"Reply by calling the `{name}` tool."}
+    system = {"role": "system", "content": prompts.CALL_TOOL.format(name=name)}
     message = query(model, [system, *messages], tools=[tool], tool_choice="auto")
     if not message.tool_calls:
         raise ValueError(f"Model replied without calling `{name}`: {message.content}")

@@ -1,9 +1,8 @@
 """
 Run a node's code and review its output and plots.
 
-Review prompts and tools are adapted from AI Scientist-v2's
-`ai_scientist/treesearch/parallel_agent.py` (`parse_exec_result`,
-`_analyze_plots_with_vlm`); see LICENSE.
+Adapted from AI Scientist-v2's `ai_scientist/treesearch/parallel_agent.py`
+(`parse_exec_result`, `_analyze_plots_with_vlm`); see LICENSE.
 """
 
 import json
@@ -12,54 +11,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+from ai_scientist_v2 import prompts, tools
 from ai_scientist_v2.llm import call_tool, image_contents
 from ai_scientist_v2.nodes import Node
 
 _MAX_OUTPUT = 5000  # characters of output kept, from the end, as upstream does
 _MAX_PLOTS = 10
-
-_REVIEW_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "submit_review",
-        "description": "Submit a review of the experiment script's output.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "is_bug": {
-                    "type": "boolean",
-                    "description": "true if the output shows that the execution failed "
-                    "or has some bug, otherwise false.",
-                },
-                "summary": {
-                    "type": "string",
-                    "description": "If there is a bug, summarise it and propose a fix. "
-                    "Otherwise, summarise the main findings.",
-                },
-            },
-            "required": ["is_bug", "summary"],
-        },
-    },
-}
-
-_PLOTS_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "analyze_experiment_plots",
-        "description": "Analyse experimental plots and give feedback on the results.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "feedback": {
-                    "type": "string",
-                    "description": "What the plots show, whether they are meaningful, "
-                    "and what they imply for the experiment.",
-                },
-            },
-            "required": ["feedback"],
-        },
-    },
-}
 
 
 def _run_script(
@@ -124,22 +81,14 @@ def _review_output(idea: dict, node: Node, model: str) -> dict:
     Returns:
         {"is_bug": bool, "summary": str}.
     """
-    metric = idea["Metric"]["name"]
-    prompt = (
-        "You are an experienced researcher. You have written code for your "
-        "research experiment and now need to evaluate the output of the code "
-        "execution. Analyse the execution output, determine if there were any bugs, "
-        "and provide a summary of the findings.\n\n"
-        "A bug is code that fails to do what it intends: an error, a wrong "
-        "calculation or missing outputs. A surprising, null or unusually stable "
-        "result is a finding, not a bug, if the code is correct.\n\n"
-        f"Research idea:\n{json.dumps(idea, indent=2)}\n\n"
-        f"Implementation:\n```python\n{node.code}\n```\n\n"
-        f"Execution output:\n```\n{node.output}\n```\n\n"
-        f"`{metric}` read from `metrics.json`: {node.metric} (None means it is "
-        "missing or not a number, which is a bug)"
+    prompt = prompts.REVIEW_OUTPUT.format(
+        idea=json.dumps(idea, indent=2),
+        code=node.code,
+        output=node.output,
+        metric=idea["Metric"]["name"],
+        value=node.metric,
     )
-    return call_tool(model, [{"role": "user", "content": prompt}], _REVIEW_TOOL)
+    return call_tool(model, [{"role": "user", "content": prompt}], tools.SUBMIT_REVIEW)
 
 
 def _review_plots(idea: dict, node_dir: Path, model: str) -> str | None:
@@ -157,14 +106,12 @@ def _review_plots(idea: dict, node_dir: Path, model: str) -> str | None:
     plots = sorted(node_dir.glob("*.png"))[:_MAX_PLOTS]
     if not plots:
         return None
-    text = (
-        "You are an experienced researcher analysing experimental results. You "
-        "have been provided with plots from an experiment.\n\n"
-        f"Research idea:\n{json.dumps(idea, indent=2)}"
-    )
+    text = prompts.REVIEW_PLOTS.format(idea=json.dumps(idea, indent=2))
     content = [{"type": "text", "text": text}]
     content += [image_contents(str(plot)) for plot in plots]
-    review = call_tool(model, [{"role": "user", "content": content}], _PLOTS_TOOL)
+    review = call_tool(
+        model, [{"role": "user", "content": content}], tools.ANALYZE_PLOTS
+    )
     return review["feedback"]
 
 

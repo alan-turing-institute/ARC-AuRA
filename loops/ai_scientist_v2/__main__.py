@@ -8,7 +8,7 @@ from ai_scientist_v2 import report
 from ai_scientist_v2.idea import generate_idea
 from ai_scientist_v2.llm import BudgetExceeded
 from ai_scientist_v2.nodes import emit, save_bests
-from ai_scientist_v2.operators import STAGE_GOALS
+from ai_scientist_v2.prompts import STAGE_GOALS
 from ai_scientist_v2.search import run_stages
 
 # A copy of `aura.constants.STAGES`, which the container can't import

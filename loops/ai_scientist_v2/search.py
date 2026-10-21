@@ -13,53 +13,10 @@ from pathlib import Path
 from random import Random
 
 import ai_scientist_v2.operators as ops
+from ai_scientist_v2 import prompts, tools
 from ai_scientist_v2.execute import evaluate
 from ai_scientist_v2.llm import BudgetExceeded, call_tool
 from ai_scientist_v2.nodes import Node, emit, save_journal, summarise_journal
-
-_SELECT_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "select_best_implementation",
-        "description": "Select the best implementation based on all the evidence.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "selected_id": {
-                    "type": "string",
-                    "description": "ID of the selected best implementation.",
-                },
-                "reasoning": {
-                    "type": "string",
-                    "description": "Why this implementation was chosen.",
-                },
-            },
-            "required": ["selected_id", "reasoning"],
-        },
-    },
-}
-
-_STAGE_DONE_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "evaluate_stage_completion",
-        "description": "Evaluate whether the current stage is complete.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "is_complete": {
-                    "type": "boolean",
-                    "description": "Whether the current stage is complete.",
-                },
-                "reasoning": {
-                    "type": "string",
-                    "description": "Reasoning for the decision.",
-                },
-            },
-            "required": ["is_complete", "reasoning"],
-        },
-    },
-}
 
 
 def select_node(
@@ -74,7 +31,7 @@ def select_node(
     Choose the next operator and the node to apply it to.
 
     Args:
-        stage: Key of `ops.STAGE_GOALS`.
+        stage: Key of `prompts.STAGE_GOALS`.
         nodes: This stage's nodes.
         start: Previous stage's best node, which this stage builds on; None in stage 1.
         best: From `best_node`; None if no node works yet.
@@ -119,18 +76,10 @@ def best_node(model: str, idea: dict, nodes: list[Node]) -> Node | None:
         f"Plot feedback: {n.plot_feedback or 'none'}"
         for n in working
     )
-    prompt = (
-        "You are an experienced researcher evaluating different implementations of "
-        "an experiment to select the best one. You should consider all aspects, "
-        "including the metric, the review of each run's output and the feedback on "
-        "its plots.\n\n"
-        "Select the best implementation from the candidates below, considering all "
-        f"available evidence. The metric is `{metric['name']}`, and {direction} is "
-        "better, but avoid relying too heavily on it alone, because it may not be "
-        "directly comparable across implementations.\n\n"
-        f"Candidates:\n{candidates}"
+    prompt = prompts.SELECT_BEST.format(
+        metric=metric["name"], direction=direction, candidates=candidates
     )
-    reply = call_tool(model, [{"role": "user", "content": prompt}], _SELECT_TOOL)
+    reply = call_tool(model, [{"role": "user", "content": prompt}], tools.SELECT_BEST)
     chosen = [n for n in working if n.id == reply["selected_id"]]
     return chosen[0] if chosen else _best_metric(working, metric["higher_is_better"])
 
@@ -147,7 +96,7 @@ def stage_done(
     Decide whether a stage has finished.
 
     Args:
-        stage: Key of `ops.STAGE_GOALS`.
+        stage: Key of `prompts.STAGE_GOALS`.
         nodes: This stage's nodes.
         start: Previous stage's best node; None in stage 1.
         cfg: Uses "stage_iters".
@@ -190,7 +139,7 @@ def run_stages(
     tree.mkdir(parents=True, exist_ok=True)
     all_nodes, bests, start = [], {}, None
     try:
-        for stage in ops.STAGE_GOALS:
+        for stage in prompts.STAGE_GOALS:
             start = _run_stage(stage, start, idea, cfg, rng, all_nodes, tree)
             if start is None:
                 break
@@ -213,7 +162,7 @@ def _run_stage(
     Grow the tree for one stage until `stage_done`.
 
     Args:
-        stage: Key of `ops.STAGE_GOALS`.
+        stage: Key of `prompts.STAGE_GOALS`.
         start: Previous stage's best node; None in stage 1.
         idea: The research idea, from `finalize_idea`, including its "Metric".
         cfg: All keys listed in the module docstring.
@@ -327,7 +276,7 @@ def _make_node(
 
     Args:
         node_id: Unique ID, e.g. the count of nodes so far.
-        stage: Key of `ops.STAGE_GOALS`.
+        stage: Key of `prompts.STAGE_GOALS`.
         op: The operator that made it.
         parent: The node it was made from; None for a draft.
         plan: The model's plan.
@@ -363,19 +312,12 @@ def _tuning_done(model: str, best: Node) -> bool:
     Returns:
         The model's verdict.
     """
-    prompt = (
-        "Evaluate if the baseline tuning stage is complete, based on the following "
-        "evidence from its best implementation.\n\n"
-        f"Plan: {best.plan}\n"
-        f"Metric: {best.metric}\n"
-        f"Review: {best.summary}\n"
-        f"Plot feedback: {best.plot_feedback or 'none'}\n\n"
-        f"The stage's goals:\n{ops.STAGE_GOALS['baseline_tuning']}\n\n"
-        "Requirements for completion:\n"
-        "1. The results should be stable and reliable\n"
-        "2. Where it makes sense, they should hold on more than one dataset or "
-        "setting\n"
-        "3. No major instabilities or issues in the plots"
+    prompt = prompts.TUNING_DONE.format(
+        plan=best.plan,
+        metric=best.metric,
+        summary=best.summary,
+        plot_feedback=best.plot_feedback or "none",
+        goals=prompts.STAGE_GOALS["baseline_tuning"],
     )
-    reply = call_tool(model, [{"role": "user", "content": prompt}], _STAGE_DONE_TOOL)
+    reply = call_tool(model, [{"role": "user", "content": prompt}], tools.STAGE_DONE)
     return reply["is_complete"]
