@@ -122,10 +122,17 @@ def write_analysis(
     metric = idea["Metric"]
     direction = "higher" if metric["higher_is_better"] else "lower"
     base = bests.get("creative_research")
+    by_id = {n.id: n for n in nodes}
+
+    def original_ablation(node: Node) -> Node:
+        while node.op == "debug" and node.parent_id in by_id:
+            node = by_id[node.parent_id]
+        return node
+
     ablations = "\n".join(
-        f"- {n.plan.splitlines()[0]}: {metric['name']} = {n.metric}"
+        f"- {original_ablation(n).plan.splitlines()[0]}: {metric['name']} = {n.metric}"
         for n in nodes
-        if n.op == "ablate" and not n.is_bug
+        if n.stage == "ablation_studies" and not n.is_bug
     )
     return _ask(
         model,
