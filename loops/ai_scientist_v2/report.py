@@ -132,7 +132,7 @@ def write_analysis(
     ablations = "\n".join(
         f"- {original_ablation(n).plan.splitlines()[0]}: {metric['name']} = {n.metric}"
         for n in nodes
-        if n.stage == "ablation_studies" and not n.is_bug
+        if n.stage == "ablation_studies" and n.is_bug is False
     )
     return _ask(
         model,

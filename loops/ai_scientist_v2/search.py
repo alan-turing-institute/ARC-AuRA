@@ -66,7 +66,7 @@ def best_node(model: str, idea: dict, nodes: list[Node]) -> Node | None:
     Returns:
         The best working node, or None if none works.
     """
-    working = [n for n in nodes if not n.is_bug]
+    working = [n for n in nodes if n.is_bug is False]
     if len(working) <= 1:
         return working[0] if working else None
     metric = idea["Metric"]
@@ -106,7 +106,7 @@ def stage_done(
     Returns:
         Whether the stage has finished.
     """
-    working = [n for n in nodes if not n.is_bug]
+    working = [n for n in nodes if n.is_bug is False]
     if len(nodes) >= cfg["stage_iters"][stage]:
         return True
     if stage == "initial_implementation":
@@ -182,20 +182,24 @@ def _run_stage(
         memory = summarise_journal(all_nodes)
         plan, code = _propose(op, model, brief, memory, parent, _tried(nodes))
         node = _make_node(f"{len(all_nodes):03d}", stage, op, parent, plan, code)
-        evaluate(idea, node, tree / node.id, idea["Metric"]["name"], timeout, model)
         nodes.append(node)
         all_nodes.append(node)
-        save_journal(all_nodes, tree / "journal.json")
-        emit(
-            "node",
-            stage=stage,
-            id=node.id,
-            parent_id=node.parent_id,
-            op=op,
-            is_bug=node.is_bug,
-            metric=node.metric,
-            summary=node.summary,
-        )
+        # Record the attempt even if its review is cut short, e.g. by the budget
+        try:
+            metric = idea["Metric"]["name"]
+            evaluate(idea, node, tree / node.id, metric, timeout, model)
+        finally:
+            save_journal(all_nodes, tree / "journal.json")
+            emit(
+                "node",
+                stage=stage,
+                id=node.id,
+                parent_id=node.parent_id,
+                op=op,
+                is_bug=node.is_bug,
+                metric=node.metric,
+                summary=node.summary,
+            )
         best = best_node(model, idea, nodes + ([start] if start else []))
         # Only ask the model once tuning has found a new best, as upstream does
         judged = (

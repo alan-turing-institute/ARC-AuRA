@@ -22,7 +22,8 @@ class Node:
         exit_code: The script's exit code; None if it timed out.
         timed_out: Whether the script hit the timeout.
         metric: The idea's metric, from `metrics.json`.
-        is_bug: Whether the node is buggy, from the run and the review.
+        is_bug: Whether the node is buggy, from the run and the review; None if
+            its review didn't finish, e.g. because the budget ran out.
         summary: The review's summary: the bug and a fix, or the main findings.
         plot_feedback: The model's feedback on the node's plots.
         debug_depth: Debug steps in a row that led to this node.
@@ -38,7 +39,7 @@ class Node:
     exit_code: int | None = None
     timed_out: bool = False
     metric: float | None = None
-    is_bug: bool = False
+    is_bug: bool | None = None
     summary: str = ""
     plot_feedback: str | None = None
     debug_depth: int = 0
