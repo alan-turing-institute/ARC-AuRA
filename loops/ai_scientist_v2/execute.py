@@ -5,9 +5,12 @@ Adapted from AI Scientist-v2's `ai_scientist/treesearch/parallel_agent.py`
 (`parse_exec_result`, `_analyze_plots_with_vlm`); see LICENSE.
 """
 
+import contextlib
 import json
 import math
+import os
 import resource
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -42,19 +45,29 @@ def _run_script(
     log = node_dir / "output.txt"
     # Output goes to a file, so a verbose script can't fill the harness's memory
     with log.open("w") as f:
+        # Its own process group, so the script's workers can be killed with it
+        process = subprocess.Popen(
+            [sys.executable, "-u", "runfile.py"],
+            cwd=node_dir,
+            stdout=f,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            preexec_fn=_limit_file_size,
+        )
         try:
-            result = subprocess.run(
-                [sys.executable, "-u", "runfile.py"],
-                cwd=node_dir,
-                stdout=f,
-                stderr=subprocess.STDOUT,
-                timeout=timeout,
-                preexec_fn=_limit_file_size,
-            )
-            exit_code, timed_out = result.returncode, False
+            exit_code, timed_out = process.wait(timeout), False
         except subprocess.TimeoutExpired:
             exit_code, timed_out = None, True
+        finally:
+            _kill_group(process)
     return log.read_text(errors="replace")[-_MAX_OUTPUT:], exit_code, timed_out
+
+
+def _kill_group(process: subprocess.Popen) -> None:
+    """Kill a script's process group, including any workers it left, and reap it."""
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(process.pid, signal.SIGKILL)
+    process.wait()
 
 
 def _limit_file_size() -> None:
