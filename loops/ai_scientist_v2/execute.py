@@ -116,10 +116,12 @@ def _read_metric(node_dir: Path, name: str) -> float | None:
     """
     try:
         value = json.loads((node_dir / "metrics.json").read_text())[name]
-    except (OSError, ValueError, KeyError, TypeError):
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            return None
+        value = float(value)  # overflows for an int too large for a float
+    except (OSError, ValueError, KeyError, TypeError, OverflowError):
         return None
-    is_number = isinstance(value, int | float) and not isinstance(value, bool)
-    return float(value) if is_number and math.isfinite(value) else None
+    return value if math.isfinite(value) else None
 
 
 def _review_output(idea: dict, node: Node, model: str) -> dict:
