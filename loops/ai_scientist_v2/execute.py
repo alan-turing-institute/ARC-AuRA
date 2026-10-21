@@ -38,8 +38,9 @@ def _run_script(
         timeout: Maximum run time, in seconds.
 
     Returns:
-        The last `_MAX_OUTPUT` characters of stdout and stderr, the exit code (None if
-        it timed out) and whether it timed out.
+        The last `_MAX_OUTPUT` characters of stdout and stderr, with a line saying why
+        the script failed if it did; the exit code (None if it timed out); and whether
+        it timed out.
     """
     (node_dir / "runfile.py").write_text(code)
     log = node_dir / "output.txt"
@@ -60,7 +61,34 @@ def _run_script(
             exit_code, timed_out = None, True
         finally:
             _kill_group(process)
-    return log.read_text(errors="replace")[-_MAX_OUTPUT:], exit_code, timed_out
+    output = log.read_text(errors="replace")[-_MAX_OUTPUT:]
+    ending = _ending(exit_code, timeout, log.stat().st_size)
+    return output + ending, exit_code, timed_out
+
+
+def _ending(exit_code: int | None, timeout: int, size: int) -> str:
+    """
+    A line saying why a script failed, for its review and debugging; added after the
+    output is cut to `_MAX_OUTPUT`, so it's always seen.
+
+    Args:
+        exit_code: The script's exit code; None if it timed out.
+        timeout: The script's timeout, in seconds.
+        size: Size of its output file, in bytes.
+
+    Returns:
+        The line, or "" if the script succeeded.
+    """
+    if exit_code is None:
+        return f"\n[Stopped: the script hit its {timeout}-second timeout.]"
+    if size >= _MAX_FILE_BYTES:
+        limit = _MAX_FILE_BYTES // 1024**2
+        return f"\n[Stopped: the output reached the {limit} MB file size limit.]"
+    if exit_code < 0:
+        return f"\n[Stopped: the script was killed by signal {-exit_code}.]"
+    if exit_code:
+        return f"\n[The script exited with code {exit_code}.]"
+    return ""
 
 
 def _kill_group(process: subprocess.Popen) -> None:
