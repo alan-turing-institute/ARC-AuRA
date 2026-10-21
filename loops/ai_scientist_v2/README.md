@@ -103,7 +103,7 @@ stages; the other settings use the defaults below, which can be changed in
   licence requires; `results/experiments/` has the main best node's script, metrics
   and plots, and the journal.
 - `idea.json`: the idea.
-- `tree/`: a folder per node (`runfile.py`, `metrics.json`, plots),
+- `tree/`: a folder per node (`runfile.py`, `output.txt`, `metrics.json`, plots),
   `journal.json` (every node) and `best_nodes.json` (each stage's best).
 - `log.txt`, in the run folder itself: one JSON event per line: `idea_search`,
   `idea`, `search_error`, `node`, `stage_end`, `output`, `citations` and

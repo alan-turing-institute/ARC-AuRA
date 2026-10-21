@@ -7,6 +7,7 @@ Adapted from AI Scientist-v2's `ai_scientist/treesearch/parallel_agent.py`
 
 import json
 import math
+import resource
 import subprocess
 import sys
 from pathlib import Path
@@ -17,6 +18,8 @@ from ai_scientist_v2.nodes import Node
 
 _MAX_OUTPUT = 5000  # characters of output kept, from the end, as upstream does
 _MAX_PLOTS = 10
+# Largest file a script may write, its output included; the run folder is on the host
+_MAX_FILE_BYTES = 100 * 1024**2
 
 
 def _run_script(
@@ -27,7 +30,8 @@ def _run_script(
 
     Args:
         code: The node's Python code.
-        node_dir: Folder to write and run the code in.
+        node_dir: Folder to write and run the code in; its output goes to
+            `output.txt` there.
         timeout: Maximum run time, in seconds.
 
     Returns:
@@ -35,19 +39,27 @@ def _run_script(
         it timed out) and whether it timed out.
     """
     (node_dir / "runfile.py").write_text(code)
-    try:
-        result = subprocess.run(
-            [sys.executable, "runfile.py"],
-            cwd=node_dir,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired as e:
-        # On timeout the partial output is always bytes, and either part may be None
-        output = "".join(s.decode(errors="replace") for s in (e.stdout, e.stderr) if s)
-        return output[-_MAX_OUTPUT:], None, True
-    return (result.stdout + result.stderr)[-_MAX_OUTPUT:], result.returncode, False
+    log = node_dir / "output.txt"
+    # Output goes to a file, so a verbose script can't fill the harness's memory
+    with log.open("w") as f:
+        try:
+            result = subprocess.run(
+                [sys.executable, "-u", "runfile.py"],
+                cwd=node_dir,
+                stdout=f,
+                stderr=subprocess.STDOUT,
+                timeout=timeout,
+                preexec_fn=_limit_file_size,
+            )
+            exit_code, timed_out = result.returncode, False
+        except subprocess.TimeoutExpired:
+            exit_code, timed_out = None, True
+    return log.read_text(errors="replace")[-_MAX_OUTPUT:], exit_code, timed_out
+
+
+def _limit_file_size() -> None:
+    """Make the script's writes fail once a file reaches `_MAX_FILE_BYTES`."""
+    resource.setrlimit(resource.RLIMIT_FSIZE, (_MAX_FILE_BYTES, _MAX_FILE_BYTES))
 
 
 def _read_metric(node_dir: Path, name: str) -> float | None:
