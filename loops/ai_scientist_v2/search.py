@@ -119,7 +119,7 @@ def stage_done(
 
 def run_stages(
     idea: dict, cfg: dict, workdir: Path
-) -> tuple[list[Node], dict[str, Node]]:
+) -> tuple[list[Node], dict[str, Node], list[str]]:
     """
     Run the four stages, each building on the previous stage's best node.
 
@@ -132,21 +132,22 @@ def run_stages(
             `tree/journal.json`.
 
     Returns:
-        All nodes, and each finished stage's best node by stage name.
+        All nodes; each stage's best node by stage name, including the judge's
+        latest pick in a stage the budget cut short; and the stages that finished.
     """
     rng = Random()
     tree = workdir / "tree"
     tree.mkdir(parents=True, exist_ok=True)
-    all_nodes, bests, start = [], {}, None
+    all_nodes, bests, finished, start = [], {}, [], None
     try:
         for stage in prompts.STAGE_GOALS:
-            start = _run_stage(stage, start, idea, cfg, rng, all_nodes, tree)
+            start = _run_stage(stage, start, idea, cfg, rng, all_nodes, bests, tree)
             if start is None:
                 break
-            bests[stage] = start
+            finished.append(stage)
     except BudgetExceeded:
         emit("budget_exceeded", nodes=len(all_nodes))
-    return all_nodes, bests
+    return all_nodes, bests, finished
 
 
 def _run_stage(
@@ -156,6 +157,7 @@ def _run_stage(
     cfg: dict,
     rng: Random,
     all_nodes: list[Node],
+    bests: dict[str, Node],
     tree: Path,
 ) -> Node | None:
     """
@@ -169,6 +171,8 @@ def _run_stage(
         rng: For `select_node`.
         all_nodes: Every node so far; new nodes are appended, so they survive a
             `BudgetExceeded` raised mid-stage.
+        bests: Each stage's best node; this stage's is updated after every
+            judgement, so it survives a `BudgetExceeded` too.
         tree: Folder for the nodes' folders and `journal.json`.
 
     Returns:
@@ -201,6 +205,8 @@ def _run_stage(
                 summary=node.summary,
             )
         best = best_node(model, idea, nodes + ([start] if start else []))
+        if best:
+            bests[stage] = best
         # Only ask the model once tuning has found a new best, as upstream does
         judged = (
             stage == "baseline_tuning"

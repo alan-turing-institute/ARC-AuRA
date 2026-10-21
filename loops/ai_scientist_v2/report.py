@@ -88,7 +88,7 @@ def write_experiments(bests: dict[str, Node], tree: Path, out: Path) -> None:
     Copy the main best node's script, metrics and plots, and the journal.
 
     Args:
-        bests: Each finished search stage's best node, from `run_stages`.
+        bests: Each search stage's best node, from `run_stages`.
         tree: The search's folder, with the nodes' folders and `journal.json`.
         out: The experiments output folder, created if missing.
     """
@@ -112,7 +112,7 @@ def write_analysis(
 
     Args:
         idea: The research idea, from `generate_idea`.
-        bests: Each finished search stage's best node, from `run_stages`.
+        bests: Each search stage's best node, from `run_stages`.
         nodes: Every node, from `run_stages`.
         model: Model name as configured in the LiteLLM gateway.
 
@@ -214,7 +214,7 @@ def write_report(
     Args:
         idea: The research idea, from `generate_idea`.
         analysis: From `write_analysis`.
-        bests: Each finished search stage's best node, from `run_stages`.
+        bests: Each search stage's best node, from `run_stages`.
         cited: From `gather_citations`.
         model: Model name as configured in the LiteLLM gateway.
 

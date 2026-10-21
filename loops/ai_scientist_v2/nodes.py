@@ -50,14 +50,15 @@ def save_journal(nodes: list[Node], path: Path) -> None:
     path.write_text(json.dumps([asdict(node) for node in nodes], indent=2))
 
 
-def save_bests(bests: dict[str, Node], path: Path) -> None:
-    """Write each stage's best node's ID, folder, metric and summary to JSON."""
+def save_bests(bests: dict[str, Node], finished: list[str], path: Path) -> None:
+    """Write each stage's best node (ID, folder, metric, summary) and if it finished."""
     summary = {
         stage: {
             "id": n.id,
             "folder": f"tree/{n.id}",
             "metric": n.metric,
             "summary": n.summary,
+            "finished": stage in finished,
         }
         for stage, n in bests.items()
     }

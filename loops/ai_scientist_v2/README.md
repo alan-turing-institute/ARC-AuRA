@@ -104,7 +104,8 @@ stages; the other settings use the defaults below, which can be changed in
   and plots, and the journal.
 - `idea.json`: the idea.
 - `tree/`: a folder per node (`runfile.py`, `output.txt`, `metrics.json`, plots),
-  `journal.json` (every node) and `best_nodes.json` (each stage's best).
+  `journal.json` (every node) and `best_nodes.json` (each stage's best, and whether
+  the stage finished).
 - `log.txt`, in the run folder itself: one JSON event per line: `idea_search`,
   `idea`, `search_error`, `node`, `stage_end`, `output`, `citations` and
   `budget_exceeded`.

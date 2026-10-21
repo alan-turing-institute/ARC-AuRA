@@ -71,8 +71,8 @@ def main(args: argparse.Namespace) -> None:
             report.save_output(results, "lit_review", text)
         if "search" not in steps:
             return
-        nodes, bests = run_stages(idea, config, workdir)
-        save_bests(bests, workdir / "tree" / "best_nodes.json")
+        nodes, bests, finished = run_stages(idea, config, workdir)
+        save_bests(bests, finished, workdir / "tree" / "best_nodes.json")
         if "experiments" in stages:
             report.write_experiments(bests, workdir / "tree", results / "experiments")
         if "analysis" not in steps:
