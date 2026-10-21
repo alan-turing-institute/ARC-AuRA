@@ -6,6 +6,9 @@ import os
 
 import litellm
 
+# Room for a full experiment script and its plan, which can pass 8k tokens
+_MAX_TOKENS = 32000
+
 
 class BudgetExceeded(Exception):
     """The run key's budget is spent, so the gateway refuses further model calls."""
@@ -28,6 +31,10 @@ def query(
         tool_choice: Optional tool choice to force the model to use a specific tool.
     ReturnS:
         The model's reply message.
+
+    Raises:
+        BudgetExceeded: The run key's budget is spent.
+        RuntimeError: The reply was cut off at `_MAX_TOKENS`.
     """
     try:
         response = litellm.completion(
@@ -37,13 +44,15 @@ def query(
             messages=messages,
             tools=tools,
             tool_choice=tool_choice,
-            max_tokens=8192,
+            max_tokens=_MAX_TOKENS,
             num_retries=3,
         )
     except litellm.RateLimitError as e:
         if "Budget has been exceeded" in str(e):
             raise BudgetExceeded(str(e)) from e
         raise
+    if response.choices[0].finish_reason == "length":
+        raise RuntimeError(f"The model's reply was cut off at {_MAX_TOKENS} tokens.")
     return response.choices[0].message
 
 

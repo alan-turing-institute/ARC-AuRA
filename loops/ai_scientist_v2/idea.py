@@ -139,7 +139,7 @@ def generate_idea(prompt: str, cfg: dict) -> tuple[dict, list[dict]]:
         {"role": "system", "content": _SYSTEM_PROMPT.format(timeout=cfg["timeout"])},
         {"role": "user", "content": _TASK_PROMPT.format(prompt=prompt)},
     ]
-    seen = set()
+    seen = {}
     for round_num in range(1, rounds):
         message = query(model, messages, [_SEARCH_TOOL, _FINALIZE_TOOL], "auto")
         messages.append(message.model_dump(exclude_none=True))
@@ -147,24 +147,49 @@ def generate_idea(prompt: str, cfg: dict) -> tuple[dict, list[dict]]:
             arguments = json.loads(call.function.arguments)
             if call.function.name == "finalize_idea":
                 return _finalised(arguments, round_num, seen)
-            papers = search_papers(arguments["query"])
-            seen |= {p["paper_id"] for p in papers}
+            papers, content = _search(arguments["query"])
+            seen |= {p["paper_id"]: p for p in papers}
             emit("idea_search", query=arguments["query"], results=len(papers))
-            messages.append(_tool_result(call.id, papers))
+            messages.append(
+                {"role": "tool", "tool_call_id": call.id, "content": content}
+            )
         reflection = _REFLECTION_PROMPT.format(round=round_num + 1, rounds=rounds)
         messages.append({"role": "user", "content": reflection})
     return _finalised(call_tool(model, messages, _FINALIZE_TOOL), rounds, seen)
 
 
-def _tool_result(call_id: str, papers: list[dict]) -> dict:
-    """A tool message holding search results, as JSON."""
-    return {"role": "tool", "tool_call_id": call_id, "content": json.dumps(papers)}
+def _search(query: str) -> tuple[list[dict], str]:
+    """
+    Search the literature, passing a failure back to the model as upstream does.
+
+    Args:
+        query: The model's search query.
+
+    Returns:
+        The papers found, and the tool message's content: the papers as JSON, or the
+        error if the search failed (e.g. Semantic Scholar's rate limit).
+    """
+    try:
+        papers = search_papers(query)
+    except RuntimeError as e:
+        emit("search_error", query=query, error=str(e))
+        return [], f"Error using tool search_papers: {e}"
+    return papers, json.dumps(papers)
+
+
+def _with_abstract(paper: dict) -> dict:
+    """The paper from `get_paper`, with its abstract, or as searched if that fails."""
+    try:
+        return get_paper(paper["paper_id"])
+    except RuntimeError as e:
+        emit("search_error", paper_id=paper["paper_id"], error=str(e))
+        return paper
 
 
 def _finalised(
-    arguments: dict, round_num: int, seen: set[str]
+    arguments: dict, round_num: int, seen: dict[str, dict]
 ) -> tuple[dict, list[dict]]:
     """Emit the idea's event; return it with the papers it cites that were seen."""
     idea = {_KEYS.get(key, key): value for key, value in arguments.items()}
     emit("idea", round=round_num, **idea)
-    return idea, [get_paper(pid) for pid in idea["Papers"] if pid in seen]
+    return idea, [_with_abstract(seen[pid]) for pid in idea["Papers"] if pid in seen]

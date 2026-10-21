@@ -263,7 +263,12 @@ def gather_citations(
         find = call_tool(model, [system, _user(ask)], _FIND_TOOL)
         if find["done"]:
             break
-        found = search_papers(find["query"])
+        try:
+            found = search_papers(find["query"])
+        except RuntimeError as e:
+            # e.g. Semantic Scholar's rate limit; this round finds nothing
+            emit("search_error", query=find["query"], error=str(e))
+            continue
         listing = "\n".join(
             f"{i}: {p['title']} ({p['year']})" for i, p in enumerate(found)
         )
