@@ -37,8 +37,16 @@ async def copy_workspace(state: TaskState) -> None:
     await sandbox().exec(["tar", "-czf", WORKSPACE_TAR, "-C", "/workspace", "."])
     data = await sandbox().read_file(WORKSPACE_TAR, text=False)
     workspace = Path(state.metadata["run_dir"]) / "workspace"
+    def workspace_filter(
+        member: tarfile.TarInfo, destination: str
+    ) -> tarfile.TarInfo | None:
+        try:
+            return tarfile.data_filter(member, destination)
+        except (tarfile.AbsoluteLinkError, tarfile.LinkOutsideDestinationError):
+            return None
+
     with tarfile.open(fileobj=io.BytesIO(data)) as tar:
-        tar.extractall(workspace, filter="data")
+        tar.extractall(workspace, filter=workspace_filter)
 
 
 def approval_policies(monitor: Approver, human_review: bool) -> list[ApprovalPolicy]:
