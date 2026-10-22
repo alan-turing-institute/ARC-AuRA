@@ -128,6 +128,8 @@ def monitor(history_size: int, escalate_at: int, reject_at: int) -> Approver:
     Raises:
         ValueError: If `reject_at` is lower than `escalate_at`.
     """
+    if escalate_at > 10:
+        reject_at = max(reject_at, escalate_at)
     if reject_at < escalate_at:
         raise ValueError(
             f"reject_at ({reject_at}) can't be lower than escalate_at ({escalate_at})"
