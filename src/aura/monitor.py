@@ -62,7 +62,7 @@ def render_actions(history: list[ChatMessage], call: ToolCall, size: int) -> str
         One line per call or result, ending with the pending call.
     """
     lines = []
-    for message in (history[-size:] if size > 0 else []):
+    for message in history[-size:] if size > 0 else []:
         if isinstance(message, ChatMessageAssistant):
             calls = message.tool_calls or []
             lines += [f"CALL {_clip(_render_call(c))}" for c in calls]
