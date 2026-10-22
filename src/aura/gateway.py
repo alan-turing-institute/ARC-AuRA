@@ -40,15 +40,15 @@ def _request(method: str, path: str, **kwargs) -> dict:
 
 
 def create_run_key(
-    run_id: str, model: str, max_budget: float, max_duration: str, metadata: dict
+    run_id: str, models: list[str], max_budget: float, max_duration: str, metadata: dict
 ) -> str:
     """
-    Create a key for one run, limited to one model, a budget, an expiry and model calls.
+    Create a key for one run, limited to its models, a budget, an expiry and model calls.
 
     Args:
         run_id: Unique ID for this run (its run folder name); the key's alias is
             "run-<run_id>".
-        model: Model name as configured in the LiteLLM gateway.
+        models: Model names the run may call, as configured in the LiteLLM gateway.
         max_budget: Maximum spend for this run, in USD.
         max_duration: How long the key is valid, in LiteLLM's format, e.g. "1h".
         metadata: Details stored with the key, e.g. task, harness and tier.
@@ -61,7 +61,7 @@ def create_run_key(
         "/key/generate",
         json={
             "key_alias": f"run-{run_id}",
-            "models": [model],
+            "models": models,
             "max_budget": max_budget,
             "duration": max_duration,
             "metadata": metadata,
@@ -123,7 +123,7 @@ def _close_run_key(key: str, run_dir: Path, budget: float, max_duration: str) ->
 
 @contextmanager
 def run_key(
-    run_dir: Path, model: str, budget: float, max_duration: str, metadata: dict
+    run_dir: Path, models: list[str], budget: float, max_duration: str, metadata: dict
 ) -> Generator[str]:
     """
     Create a key for a run, then block it and record its spend when the run ends.
@@ -132,7 +132,7 @@ def run_key(
 
     Args:
         run_dir: Run folder; its name is the run ID and `cost.json` is written to it.
-        model: Model name as configured in the LiteLLM gateway.
+        models: Model names the run may call, as configured in the LiteLLM gateway.
         budget: Maximum spend for the run, in USD.
         max_duration: How long the key is valid, in LiteLLM's format, e.g. "1h".
         metadata: Details stored with the key, e.g. task, harness and tier.
@@ -140,7 +140,7 @@ def run_key(
     Yields:
         The run key, for the duration of the `with` block.
     """
-    key = create_run_key(run_dir.name, model, budget, max_duration, metadata)
+    key = create_run_key(run_dir.name, models, budget, max_duration, metadata)
     try:
         yield key
     finally:

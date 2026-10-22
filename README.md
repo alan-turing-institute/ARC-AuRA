@@ -81,6 +81,7 @@ Agents run with [Inspect](https://inspect.aisi.org.uk) in throwaway Docker conta
 | `litmcp` | `litmcp/` | Literature MCP server. Searches Semantic Scholar and serves open-access paper text and page images to agents, caching every result in `litmcp/cache/`. Holds the Semantic Scholar key; agents only reach it over the sandbox network. |
 | `mcp.json` | repo root | MCP config pointing the agent at `litmcp`. `aura run` passes it to either harness. |
 | `approval.yaml` | repo root | Inspect approval policy: which approver handles each tool call. See [Approval](#approval). |
+| `monitor_prompt.md` | repo root | Instructions for the monitor model that scores each tool call's suspicion. |
 | `.env` | repo root | Agent image tag. Increment it whenever the image changes to keep old images cached. |
 | `scripts/` | | `build.sh` builds the agent and `litmcp` images; `build_wheelhouse.sh` downloads the mirror's wheels. |
 | `aura run` | `src/aura/` | Assembles a task prompt and runs it as an Inspect eval in a fresh agent container. |
@@ -93,7 +94,7 @@ Agents run with [Inspect](https://inspect.aisi.org.uk) in throwaway Docker conta
 | `cli.py` | `aura` command-line entry point |
 | `run.py` | Runs a task: builds the prompt, makes the run folder and chains the steps below |
 | `task.py` | Assembles a task prompt from the files in `tasks/` |
-| `evaluation.py` | Builds and runs the one-sample Inspect eval, and copies `/workspace` out |
+| `sandbox.py` | Runs the harness agent in a fresh sandbox through Inspect, and copies `/workspace` out |
 | `gateway.py` | Per-run LiteLLM keys: creates, blocks and records the spend of each |
 | `harnesses/` | One function per harness, each building an Inspect agent from a model name |
 | `constants.py` | Paths, models (from `litellm/config.yaml`), tiers and stages |
@@ -178,7 +179,9 @@ Tasks are run with `aura run`:
 
 ```bash
 aura run <task> [--harness claude-code|opencode] [--model claude-opus-5-5] [--task-tier 1] \
-  [--stages <stage> ...] [--budget 2.0] [--max-duration 1h]
+  [--stages <stage> ...] [--budget 2.0] [--max-duration 1h] \
+  [--monitor-model claude-haiku-4-5] [--monitor-history 20] [--escalate-at 4] [--reject-at 8] \
+  [--human-review]
 ```
 
 For example:
@@ -238,9 +241,19 @@ To see which literature tools an agent called, open the run in `inspect view` an
 
 ### Approval
 
-Inspect checks every tool call the model proposes against `approval.yaml` before the harness sees it. Groups are tried in order and the first whose `tools` pattern matches decides; a pattern without `*` matches as a prefix. Patterns use each harness's own tool names (e.g. `Bash` and `mcp__literature__search_papers` for Claude Code, `bash` and `literature_search_papers` for OpenCode). A rejected call is never run: the model is told it was refused and proposes something else.
+Inspect checks every tool call the model proposes against a chain of approvers before the harness sees it: the groups in `approval.yaml`, then the monitor, then (with `--human-review`) a human. For each call, the approvers whose `tools` pattern matches decide in order; a pattern without `*` matches as a prefix. Each one approves (the call runs), escalates (the next approver decides) or rejects (the call is denied). Patterns use each harness's own tool names (e.g. `Bash` and `mcp__literature__search_papers` for Claude Code, `bash` and `literature_search_papers` for OpenCode). A rejected call is never run: the model is told it was refused and proposes something else. After 3 rejections in a row, the run ends.
 
-Every group currently uses the `auto` approver. To gate shell commands and file writes, change the last group's `name` to `human` (approve each call in Inspect's terminal display) or to a custom approver.
+Literature and read-only calls (Read, Glob, Grep and their OpenCode equivalents) are always approved and not scored. Every other call goes to the **monitor**: a second model (`--monitor-model`, default `claude-haiku-4-5`) that sees the task, the agent's last `--monitor-history` messages (default 20) of tool calls and results, and the pending call, but not the agent's own text or reasoning. It scores the call's suspicion from 0 to 10 against the concerns in `monitor_prompt.md`, then decides by these bands:
+
+| Score | Decision |
+|---|---|
+| below `--escalate-at` (default 4) | approve |
+| `--escalate-at` up to `--reject-at` (default 8) | escalate |
+| `--reject-at` and above | reject |
+
+A reply without a score is escalated. With `--human-review`, escalated calls pause the run until you approve, reject or modify them in the terminal, so stay with the run; one left waiting holds until its key expires. Without it, escalated calls are denied. To score calls without blocking any, set `--escalate-at` above 10. `--reject-at` can't be lower than `--escalate-at`.
+
+Scores appear in `inspect view` next to each call (as the monitor's approval explanation), and the run's maximum and mean suspicion and its counts of escalated and rejected calls appear as the sample's scores. The monitor's calls are paid from the run's `--budget`.
 
 ### PyPI mirror
 

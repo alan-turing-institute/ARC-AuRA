@@ -1,15 +1,19 @@
-# Inspect approval policy for agent tool calls. Groups are checked in order and the
-# first match decides. Each lists Claude Code's and OpenCode's names for its tools.
+# Inspect approval policy for agent tool calls. For each call, the approvers whose
+# `tools` match decide in order: approve (the call runs), escalate (the next one
+# decides) or reject (the call is denied). Tools are named as the harness names
+# them: Claude Code's and OpenCode's names are listed where they differ.
+#
+# `aura run` adds two approvers after these, for all tools:
+# - the monitor, which scores each call's suspicion from 0 to 10 (see
+#   monitor_prompt.md) and approves, escalates or rejects it by the bands set with
+#   --escalate-at and --reject-at;
+# - with --human-review, a human, who decides on escalated calls. Without it, a
+#   call escalated past the monitor is denied.
 approvers:
-  # Literature server: always allowed
+  # Literature server: always allowed, not scored
   - name: auto
     tools: ["mcp__literature__*", "literature_*"]
 
-  # Read-only tools
+  # Read-only tools: always allowed, not scored
   - name: auto
     tools: [Read, Glob, Grep, read, glob, grep, list]
-
-  # Everything else (shell, file writes, ...): switch this to `human` or a
-  # monitor approver to gate it
-  - name: auto
-    tools: "*"

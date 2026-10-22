@@ -34,14 +34,14 @@ def serve(monkeypatch):
 def test_create_run_key_sends_limits_with_master_key(serve):
     requests = serve(lambda r: httpx.Response(200, json={"key": RUN_KEY}))
 
-    key = gateway.create_run_key("run1", "claude-haiku-4-5", 2.0, "1h", {"tier": 1})
+    key = gateway.create_run_key("run1", ["m1", "m2"], 2.0, "1h", {"tier": 1})
 
     assert key == RUN_KEY
     (request,) = requests
     assert request.headers["authorization"] == f"Bearer {MASTER_KEY}"
     assert json.loads(request.content) == {
         "key_alias": "run-run1",
-        "models": ["claude-haiku-4-5"],
+        "models": ["m1", "m2"],
         "max_budget": 2.0,
         "duration": "1h",
         "metadata": {"tier": 1},
@@ -84,7 +84,7 @@ def lifecycle(serve, monkeypatch):
 def test_run_key_is_blocked_and_cost_recorded(lifecycle, tmp_path, fails):
     with (
         pytest.raises(RuntimeError) if fails else contextlib.nullcontext(),
-        gateway.run_key(tmp_path, "claude-haiku-4-5", 0.5, "10m", {}) as key,
+        gateway.run_key(tmp_path, ["claude-haiku-4-5"], 0.5, "10m", {}) as key,
     ):
         assert key == RUN_KEY
         if fails:

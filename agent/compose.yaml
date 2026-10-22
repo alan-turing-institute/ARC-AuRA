@@ -1,7 +1,7 @@
 # Inspect's sandbox: one fresh agent container per sample
 services:
   default:
-    image: ${SAMPLE_METADATA_IMAGE}     # set in make_task, src/aura/evaluation.py
+    image: ${SAMPLE_METADATA_IMAGE}     # set in build_task, src/aura/sandbox.py
     x-local: true     # Built locally by scripts/build.sh; never pulled from a registry
     pull_policy: never
     command: ["tail", "-f", "/dev/null"]   # keep alive; Inspect runs the harness via exec
@@ -17,7 +17,7 @@ services:
       OPENCODE_DISABLE_CLAUDE_CODE: "1"
     volumes:
       # Read-only: Inspect refuses writable host mounts. /workspace is copied out
-      # to the run folder when the run ends (copy_workspace, src/aura/evaluation.py).
+      # to the run folder when the run ends (copy_workspace, src/aura/sandbox.py).
       - ../skills:/skills:ro
       - ${SAMPLE_METADATA_RUN_DIR}/task:/task:ro
     cpus: 4
