@@ -10,7 +10,7 @@ import json
 import os
 import tempfile
 from collections.abc import AsyncIterator, Awaitable, Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -98,7 +98,7 @@ def write_atomic(path: Path, data: bytes) -> None:
 
 def now() -> str:
     """Current UTC time as an ISO 8601 string, for `fetched_at` fields."""
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class KeyedLock:
