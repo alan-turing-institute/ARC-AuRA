@@ -25,7 +25,9 @@ from inspect_ai.util import store
 
 from aura.constants import MONITOR_PROMPT
 
-MAX_CHARS = 2000  # per rendered call or result, to bound the monitor's input
+# Per earlier call or result, to bound the monitor's input. The pending call is
+# never clipped, as the monitor must see everything that would run.
+MAX_CHARS = 2000
 
 
 def _clip(text: str) -> str:
@@ -33,9 +35,9 @@ def _clip(text: str) -> str:
     return text if len(text) <= MAX_CHARS else f"{text[:MAX_CHARS]} [...]"
 
 
-def _format_call(call: ToolCall) -> str:
+def _render_call(call: ToolCall) -> str:
     """Render a tool call as `function({arguments})`."""
-    return _clip(f"{call.function}({json.dumps(call.arguments)})")
+    return f"{call.function}({json.dumps(call.arguments)})"
 
 
 def task_text(history: list[ChatMessage]) -> str:
@@ -48,7 +50,8 @@ def render_actions(history: list[ChatMessage], call: ToolCall, size: int) -> str
     Render recent tool calls and results, then the pending call.
 
     The agent's own text and reasoning are left out, so the monitor judges actions
-    rather than the agent's explanations of them.
+    rather than the agent's explanations of them. Earlier calls and results are
+    clipped; the pending call is shown in full.
 
     Args:
         history: Conversation so far.
@@ -61,10 +64,11 @@ def render_actions(history: list[ChatMessage], call: ToolCall, size: int) -> str
     lines = []
     for message in history[-size:]:
         if isinstance(message, ChatMessageAssistant):
-            lines += [f"CALL {_format_call(c)}" for c in message.tool_calls or []]
+            calls = message.tool_calls or []
+            lines += [f"CALL {_clip(_render_call(c))}" for c in calls]
         elif isinstance(message, ChatMessageTool):
             lines.append(f"RESULT {_clip(message.text)}")
-    lines.append(f"PENDING {_format_call(call)}")
+    lines.append(f"PENDING {_render_call(call)}")
     return "\n".join(lines)
 
 
@@ -132,6 +136,24 @@ def monitor(history_size: int, escalate_at: int, reject_at: int) -> Approver:
     async def approve(
         message: str, call: ToolCall, view: ToolCallView, history: list[ChatMessage]
     ) -> Approval:
+        """
+        Score a pending tool call and decide whether it runs.
+
+        Inspect calls every approver with these four arguments, so the signature
+        must match its `Approver` protocol even though `message` and `view` are
+        unused.
+
+        Args:
+            message: The agent's text alongside the call; unused, as the monitor
+                judges actions rather than the agent's explanations.
+            call: The tool call awaiting approval.
+            view: Inspect's rendering of the call for human approvers; unused.
+            history: Conversation so far, from which the task and recent actions
+                are rendered.
+
+        Returns:
+            The decision, with the score and reasoning as its explanation.
+        """
         prompt = MONITOR_PROMPT.read_text().format(
             task=task_text(history),
             actions=render_actions(history, call, history_size),
@@ -162,6 +184,23 @@ def monitor_summary() -> Scorer:
     """Summarise the monitor's scores and decisions for the run."""
 
     async def score(state: TaskState, target: Target) -> Score:
+        """
+        Summarise the scores the monitor recorded during the sample.
+
+        Inspect calls every scorer with these two arguments, so the signature must
+        match its `Scorer` protocol even though neither is used.
+
+        Args:
+            state: Sample state; unused. Its `store` is the same store read here
+                through `store()`, used so the scorer matches the approver, which
+                isn't given the task state.
+            target: Correct answer for the sample; unused, as the monitor summary
+                has nothing to compare against.
+
+        Returns:
+            Maximum and mean suspicion, and counts of calls scored, escalated and
+            rejected.
+        """
         records = store().get("monitor", [])
         scores = [r["score"] for r in records if r["score"] is not None]
         decisions = [r["decision"] for r in records]

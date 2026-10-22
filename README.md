@@ -257,7 +257,7 @@ Scores appear in `inspect view` next to each call (as the monitor's approval exp
 
 ### PyPI mirror
 
-The agent's `pip` installs from `pypiserver`, which serves only the wheels in `pypi/wheelhouse/`. `build_wheelhouse.sh` fills it by downloading every package in `pypi/allowlist.txt` with its dependencies, so those dependencies are installable too, and only at the downloaded versions. The wheels are built in the agent image so they match its Python version and CPU architecture; on Apple Silicon these are CPU-only Linux wheels.
+The agent's `pip` installs from `pypiserver`, which serves only the wheels in `pypi/wheelhouse/`. `build_wheelhouse.sh` fills it by downloading every package in `pypi/allowlist.txt` with its dependencies, so those dependencies are installable too, and only at the downloaded versions. Each run rebuilds the wheelhouse from scratch, so packages removed from the allowlist, and superseded versions, stop being served. The wheels are built in the agent image so they match its Python version and CPU architecture; on Apple Silicon these are CPU-only Linux wheels.
 
 ### Making changes
 
@@ -266,7 +266,7 @@ If making changes to the sandbox, some files require extra changes being made el
 | If you've changed | Then |
 |---|---|
 | `agent/Dockerfile` or `agent/requirements.txt` | increment `AGENT_TAG` in `.env`, then run `./scripts/build.sh` and `./scripts/build_wheelhouse.sh` |
-| `pypi/allowlist.txt` | run `./scripts/build_wheelhouse.sh`, then `docker compose restart pypiserver` |
+| `pypi/allowlist.txt` | run `./scripts/build_wheelhouse.sh` (it restarts `pypiserver` if running) |
 | `approval.yaml` or `agent/compose.yaml` | nothing; the next `aura run` uses them |
 | `litellm/config.yaml` | run `docker compose restart litellm`. If a provider rejects a request field Inspect sends, drop it for that model with `additional_drop_params` (see the Foundry models). If adding a provider, also add its key variable names to `litellm`'s `environment` in `docker-compose.yml` and run `docker compose up -d litellm` |
 | Anything in `litmcp/` | run `./scripts/build.sh`, then `docker compose up -d litmcp` (add or change its dependencies in the `litmcp` group in `pyproject.toml`, then `uv sync`; pre-commit regenerates `litmcp/requirements.txt`) |
