@@ -1,23 +1,27 @@
-from aura.constants import MCP_CONFIG
+from inspect_ai.agent import Agent
+from inspect_swe import claude_code
+
+from aura.harnesses.mcp import mcp_servers
 
 
-def claude_code_command(prompt: str, model: str) -> list[str]:
+def claude_code_agent(model: str) -> Agent:
     """
-    Build a headless Claude Code command connected to the servers in `mcp.json`.
+    Build a Claude Code agent using the image's install and the servers in `mcp.json`.
 
-    The command skips permission prompts, as the container is the sandbox, and
-    streams one JSON event per agent step.
+    Web tools are disallowed, as WebSearch runs at the model provider, outside the
+    sandbox.
 
     Args:
-        prompt: Full task prompt.
-        model: Model name as configured in the LiteLLM gateway.
+        model: Model name as configured in the LiteLLM gateway; sets the model
+            Claude Code presents as. Its calls go to the eval's model via the bridge.
 
     Returns:
-        The command to run inside the agent container.
+        The agent, to use as an Inspect solver.
     """
-    return [
-        "claude", "-p", prompt, "--model", model,
-        "--mcp-config", MCP_CONFIG.read_text(), "--strict-mcp-config",
-        "--output-format", "stream-json", "--verbose",
-        "--dangerously-skip-permissions",
-    ]  # fmt: skip
+    return claude_code(
+        version="sandbox",
+        cwd="/workspace",
+        model_config=model,
+        mcp_servers=mcp_servers(),
+        disallowed_tools=["WebSearch", "WebFetch"],
+    )

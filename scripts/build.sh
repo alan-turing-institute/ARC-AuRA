@@ -6,4 +6,5 @@ source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 # checkout it doesn't exist, and Docker would otherwise create it owned by root.
 mkdir -p "$PROJECT_ROOT/litmcp/cache"
 
-compose build agent litmcp
+docker build -t "research-sandbox:$AGENT_TAG" "$PROJECT_ROOT/agent"
+compose build litmcp
