@@ -1,0 +1,15 @@
+# Inspect approval policy for agent tool calls. Groups are checked in order and the
+# first match decides. Each lists Claude Code's and OpenCode's names for its tools.
+approvers:
+  # Literature server: always allowed
+  - name: auto
+    tools: ["mcp__literature__*", "literature_*"]
+
+  # Read-only tools
+  - name: auto
+    tools: [Read, Glob, Grep, read, glob, grep, list]
+
+  # Everything else (shell, file writes, ...): switch this to `human` or a
+  # monitor approver to gate it
+  - name: auto
+    tools: "*"

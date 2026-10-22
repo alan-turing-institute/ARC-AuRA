@@ -1,20 +1,46 @@
-"""Run a task in the agent sandbox."""
+"""
+Run a task in the agent sandbox.
 
+A run (`run`) goes through these steps:
+
+1. Build the prompt from the task's files, tier and stages, and make the run folder
+   `runs/<id>/`, holding `task/TASK.md` and `run_config.json`.
+2. Build a one-sample Inspect task (`make_task`). Its sandbox is
+   `agent/compose.yaml`, its solver the harness agent, and its approval policy
+   `approval.yaml`.
+3. Create a run key on LiteLLM, limited to one model, a budget and an expiry.
+4. Run the eval (`run_eval`). Inspect starts a fresh agent container, and the
+   harness's model calls come back to Inspect through the bridge. Inspect sends
+   them on to LiteLLM with the run key and checks each tool call against the
+   approval policy. Inspect writes the `.eval` log to the run folder.
+5. When the sample ends, however it ends, copy `/workspace` into the run folder
+   (`copy_workspace`). Inspect then deletes the container.
+6. Block the run key and write its spend to `cost.json` (`_close_run_key`).
+"""
+
+import io
 import json
-import os
 import random
-import subprocess
 import sys
+import tarfile
 import time
 from datetime import datetime
 from pathlib import Path
 
-from aura.constants import AGENT_TAG, PROJECT_ROOT
-from aura.gateway import block_key, create_run_key, get_spend
+from inspect_ai import Task, eval
+from inspect_ai.agent import Agent
+from inspect_ai.dataset import Sample
+from inspect_ai.model import get_model
+from inspect_ai.solver import TaskState
+from inspect_ai.util import sandbox
+
+from aura.constants import AGENT_COMPOSE, AGENT_TAG, APPROVAL_CONFIG, PROJECT_ROOT
+from aura.gateway import GATEWAY_URL, block_key, create_run_key, get_spend
 from aura.harnesses import HARNESSES
 from aura.task import build_prompt
 
 SPEND_WAIT = 12  # seconds: LiteLLM writes spend to its database every 10 s
+WORKSPACE_TAR = "/tmp/workspace.tar.gz"
 
 
 def make_run_dir(task: str) -> Path:
@@ -34,50 +60,76 @@ def make_run_dir(task: str) -> Path:
     return run_dir
 
 
-def compose_run(command: list[str], run_dir: Path, model: str, run_key: str) -> None:
+async def copy_workspace(state: TaskState) -> None:
     """
-    Run a command in a fresh agent container, copying output to `log.txt`.
+    Copy the sandbox's `/workspace` into the run folder's `workspace`.
+
+    The archive is written by the agent, so extraction rejects paths and links that
+    point outside the folder.
 
     Args:
-        command: Harness command to run inside the container.
-        run_dir: Run folder whose `workspace` and `task` folders are mounted.
+        state: Sample state; its metadata holds the run folder.
+    """
+    await sandbox().exec(["tar", "-czf", WORKSPACE_TAR, "-C", "/workspace", "."])
+    data = await sandbox().read_file(WORKSPACE_TAR, text=False)
+    workspace = Path(state.metadata["run_dir"]) / "workspace"
+    with tarfile.open(fileobj=io.BytesIO(data)) as tar:
+        tar.extractall(workspace, filter="data")
+
+
+def make_task(agent: Agent, prompt: str, run_dir: Path) -> Task:
+    """
+    Build a one-sample Inspect task that runs an agent in a fresh sandbox.
+
+    Args:
+        agent: Harness agent, from `HARNESSES`.
+        prompt: Full task prompt.
+        run_dir: Run folder; its `task` folder is mounted and `workspace` filled at
+            the end.
+
+    Returns:
+        The task, with the approval policy and workspace copy attached.
+    """
+    metadata = {"image": f"research-sandbox:{AGENT_TAG}", "run_dir": str(run_dir)}
+    return Task(
+        dataset=[Sample(input=prompt, metadata=metadata)],
+        solver=agent,
+        sandbox=("docker", str(AGENT_COMPOSE)),
+        approval=str(APPROVAL_CONFIG),
+        cleanup=copy_workspace,
+    )
+
+
+def run_eval(task: Task, run_dir: Path, model: str, run_key: str) -> None:
+    """
+    Run a task with Inspect, calling the model through the gateway with the run key.
+
+    Args:
+        task: Task from `make_task`.
+        run_dir: Run folder the `.eval` log is written to.
         model: Model name as configured in the LiteLLM gateway.
-        run_key: Gateway key the agent uses for model calls, passed as `RUN_KEY`.
+        run_key: Gateway key for the run's model calls; it never enters the sandbox.
 
     Raises:
-        subprocess.CalledProcessError: If the container exits with an error.
+        RuntimeError: If the eval doesn't finish successfully.
     """
-    env = {
-        **os.environ,
-        "RUN_DIR": str(run_dir),
-        "RUN_MODEL": model,
-        "RUN_KEY": run_key,
-    }
-    compose_file = str(PROJECT_ROOT / "docker-compose.yml")
-    docker = ["docker", "compose", "-f", compose_file, "run", "--rm", "-T", "agent"]
-    with (
-        subprocess.Popen(
-            [*docker, *command],
-            env=env,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        ) as proc,
-        (run_dir / "log.txt").open("w") as log,
-    ):
-        for line in proc.stdout or []:
-            sys.stdout.write(line)
-            log.write(line)
-    if proc.returncode:
-        raise subprocess.CalledProcessError(proc.returncode, proc.args)
+    # LiteLLM forwards to Azure Foundry. The `azure/` service stops Inspect sending
+    # options only Anthropic's own API accepts (e.g. thinking block binding).
+    gateway_model = get_model(
+        f"anthropic/azure/{model}", base_url=GATEWAY_URL, api_key=run_key
+    )
+    (log,) = eval(task, model=gateway_model, log_dir=str(run_dir))
+    if log.status != "success":
+        raise RuntimeError(
+            f"Run {log.status}: {log.error.message if log.error else ''}"
+        )
 
 
 def _warn(run_dir: Path, message: str) -> None:
-    """Print a warning and append it to the run's `log.txt`."""
+    """Print a warning and append it to the run's `warnings.txt`."""
     line = f"Warning: {message}\n"
     sys.stderr.write(line)
-    with (run_dir / "log.txt").open("a") as log:
+    with (run_dir / "warnings.txt").open("a") as log:
         log.write(line)
 
 
@@ -135,7 +187,6 @@ def run(
         max_duration: How long the run's key is valid, in LiteLLM's format, e.g. "1h".
     """
     prompt = build_prompt(task, tier, stages)
-    command = HARNESSES[harness](prompt, model)
     run_dir = make_run_dir(task)
     (run_dir / "task" / "TASK.md").write_text(prompt)
     config = {
@@ -147,13 +198,13 @@ def run(
         "model": model,
         "budget": budget,
         "duration": max_duration,
-        "command": command,
     }
     (run_dir / "run_config.json").write_text(json.dumps(config, indent=2))
+    eval_task = make_task(HARNESSES[harness](model), prompt, run_dir)
     metadata = {"task": task, "harness": harness, "tier": tier}
     key = create_run_key(run_dir.name, model, budget, max_duration, metadata)
     try:
-        compose_run(command, run_dir, model, key)
+        run_eval(eval_task, run_dir, model, key)
     finally:
         _close_run_key(key, run_dir, budget, max_duration)
     print(f"Finished: {run_dir}")

@@ -1,0 +1,16 @@
+# Packages the agent can install from the pypiserver mirror. Their dependencies are
+# downloaded too, so those are installable as well. After editing, rerun
+# ./scripts/build_wheelhouse.sh and `docker compose restart pypiserver`.
+numpy
+pandas
+scipy
+scikit-learn
+statsmodels
+matplotlib
+seaborn
+torch
+transformers
+datasets
+tokenizers
+accelerate
+tqdm

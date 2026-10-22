@@ -15,6 +15,6 @@ COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 # Run as an ordinary user, never root
-RUN useradd --create-home --uid 1000 agent
+RUN useradd --create-home --uid 1000 agent && install -d -o agent /workspace
 USER agent
 WORKDIR /workspace

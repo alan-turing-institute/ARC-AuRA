@@ -11,6 +11,8 @@ TASKS_DIR = PROJECT_ROOT / "tasks"
 
 # Project Files
 MCP_CONFIG = PROJECT_ROOT / "mcp.json"
+APPROVAL_CONFIG = PROJECT_ROOT / "approval.yaml"
+AGENT_COMPOSE = PROJECT_ROOT / "agent" / "compose.yaml"
 LITELLM_CONFIG = PROJECT_ROOT / "litellm" / "config.yaml"
 
 # Constants

@@ -1,7 +1,6 @@
 """Tests for the per-run gateway key lifecycle in src/aura/run.py."""
 
 import json
-import subprocess
 
 import pytest
 
@@ -12,14 +11,14 @@ RUN_KEY = "sk-run-secret"
 
 @pytest.fixture
 def fake_run(tmp_path, monkeypatch):
-    """Replace the gateway, Docker and task prompt with fakes; return what they saw."""
+    """Replace the gateway, Inspect and task prompt with fakes; return what they saw."""
     seen = {"blocked": []}
 
     def fake_create_run_key(run_id, model, max_budget, max_duration, metadata):
         seen["limits"] = (max_budget, max_duration)
         return RUN_KEY
 
-    def fake_compose_run(command, run_dir, model, run_key):
+    def fake_run_eval(task, run_dir, model, run_key):
         seen["run_key"] = run_key
 
     monkeypatch.setenv("LITELLM_MASTER_KEY", "sk-master-secret")
@@ -29,7 +28,8 @@ def fake_run(tmp_path, monkeypatch):
     monkeypatch.setattr(run, "create_run_key", fake_create_run_key)
     monkeypatch.setattr(run, "block_key", seen["blocked"].append)
     monkeypatch.setattr(run, "get_spend", lambda key: 0.25)
-    monkeypatch.setattr(run, "compose_run", fake_compose_run)
+    monkeypatch.setattr(run, "make_task", lambda agent, prompt, run_dir: None)
+    monkeypatch.setattr(run, "run_eval", fake_run_eval)
     return seen
 
 
@@ -60,12 +60,12 @@ def test_run_uses_its_own_key_and_records_cost(fake_run, tmp_path):
 def test_key_is_blocked_and_cost_recorded_when_run_fails(
     fake_run, tmp_path, monkeypatch
 ):
-    def failing_compose_run(command, run_dir, model, run_key):
-        raise subprocess.CalledProcessError(1, "docker")
+    def failing_run_eval(task, run_dir, model, run_key):
+        raise RuntimeError("Run error")
 
-    monkeypatch.setattr(run, "compose_run", failing_compose_run)
+    monkeypatch.setattr(run, "run_eval", failing_run_eval)
 
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(RuntimeError):
         run.run(
             "task", "claude-code", "claude-haiku-4-5", 1, ["research_design"], 2.0, "1h"
         )

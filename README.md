@@ -68,21 +68,22 @@ uv run pre-commit install
 
 ## Agent sandbox
 
-Agents run in throwaway Docker containers with no internet access. Each run gets a fresh container, which is deleted when the run finishes. API keys never enter the container or the repo.
+Agents run with [Inspect](https://inspect.aisi.org.uk) in throwaway Docker containers with no internet access. Each run gets a fresh container, which is deleted when the run finishes. The harness's model calls go through Inspect's agent bridge to the host, so API keys never enter the container or the repo. Every tool call passes through an Inspect approval policy and is recorded in the run's `.eval` log.
 
 ### Components
 
 | Component | Config | Role |
 |---|---|---|
-| `agent` | `agent/Dockerfile` | Image the harness runs in (Claude Code + OpenCode + Python stack). One fresh container per run; sandbox network only. |
-| `litellm` | `litellm/config.yaml` | Model gateway. Holds API keys and forwards model calls. Each run gets its own gateway key, limited to one model, a budget and an expiry. Published on `127.0.0.1:4000` only, so `aura run` can create those keys. |
+| `agent` | `agent/Dockerfile`, `agent/compose.yaml` | Image the harness runs in (Claude Code + OpenCode + Python stack), and the compose file Inspect uses to start one fresh container per run on the sandbox network. |
+| `litellm` | `litellm/config.yaml` | Model gateway. Holds API keys and forwards model calls. Each run gets its own gateway key, limited to one model, a budget and an expiry. Published on `127.0.0.1:4000` only; only the host (`aura run` and Inspect) calls it, never the agent. |
 | `postgres` | `docker-compose.yml` | LiteLLM's database: run keys and their spend. Only `litellm` can reach it; data persists in the `litellm_db` volume. |
-| `proxy` | `proxy/squid.conf` | Manages agent website access. |
+| `pypiserver` | `pypi/allowlist.txt` | PyPI mirror. Serves only the wheels in `pypi/wheelhouse/`: the allowlisted packages and their dependencies. The agent's `pip` uses it; nothing else is installable. |
 | `litmcp` | `litmcp/` | Literature MCP server. Searches Semantic Scholar and serves open-access paper text and page images to agents, caching every result in `litmcp/cache/`. Holds the Semantic Scholar key; agents only reach it over the sandbox network. |
-| `mcp.json` | repo root | MCP config pointing the agent at `litmcp`. `aura run` passes it to Claude Code with `--mcp-config` and to OpenCode in its config. |
+| `mcp.json` | repo root | MCP config pointing the agent at `litmcp`. `aura run` passes it to either harness. |
+| `approval.yaml` | repo root | Inspect approval policy: which approver handles each tool call. See [Approval](#approval). |
 | `.env` | repo root | Agent image tag. Increment it whenever the image changes to keep old images cached. |
-| `scripts/` | | `build.sh` builds the agent image. |
-| `aura run` | `src/aura/` | Assembles a task prompt and runs it in a fresh agent container. |
+| `scripts/` | | `build.sh` builds the agent and `litmcp` images; `build_wheelhouse.sh` downloads the mirror's wheels. |
+| `aura run` | `src/aura/` | Assembles a task prompt and runs it as an Inspect eval in a fresh agent container. |
 | `tasks/` | | Task descriptions; see [Tasks](#tasks). |
 
 ### First time setup
@@ -123,10 +124,11 @@ Note the last two of these are required across all models. `LITELLM_DB_PASSWORD`
         "https://api.semanticscholar.org/graph/v1/paper/search?query=transformers&limit=1"
       ```
 
-3. Build the docker images (the agent and litmcp):
+3. Build the docker images (the agent and litmcp), then download the PyPI mirror's wheels (several GB, as the allowlist includes torch):
 
 ```bash
 ./scripts/build.sh
+./scripts/build_wheelhouse.sh
 ```
 
 ### Each session
@@ -137,11 +139,11 @@ Note the last two of these are required across all models. `LITELLM_DB_PASSWORD`
 colima start
 ```
 
-2. Startup the modelgateway and proxy and verify they are running. If using Colima, start it first with `colima start` (skip this if it is already running; check with `colima status`).
+2. Start the model gateway, literature server and PyPI mirror, and verify they are running:
 
 ```bash
-docker compose up -d litellm proxy litmcp   # start gateway (and its database), proxy and literature server
-docker compose ps                           # all four should be running, postgres "healthy"
+docker compose up -d litellm litmcp pypiserver   # gateway (and its database), literature server, mirror
+docker compose ps                                # all four should be running, postgres "healthy"
 ```
 
 3. Once finished for the day, shut everything down aferwards with:
@@ -178,15 +180,16 @@ aura run dataset_similarity --task-tier 2 --stages lit_review research_design
 
 The task is passed to the agent inline in its prompt and also mounted read-only at `/task/TASK.md`, so the agent can reread it. Each run creates `runs/<timestamp>-<task>-<n>/` containing:
 
-- `workspace/`: everything the agent wrote
+- `workspace/`: everything the agent wrote, copied out of the container when the run ends
 - `task/TASK.md`: the task exactly as the agent received it
-- `log.txt`: full output, with one JSON event per line for each agent step (tool calls, results, final summary)
-- `run_config.json`: image tag, options (including stages) and the full harness command
+- `<timestamp>_...eval`: Inspect's log of the run: every model call, tool call, approval decision and result. View it with `inspect view --log-dir runs/<run>`
+- `run_config.json`: image tag and options (including stages)
 - `cost.json`: the run's key alias, budget, expiry and final spend in USD
+- `warnings.txt`: only if the gateway couldn't block the key or report its spend
 
 Each run gets a fresh gateway key, limited to the chosen model, `--budget` (USD) and `--max-duration` (in LiteLLM's format, e.g. `30m` or `2h`). If the run reaches either limit, the gateway refuses further model calls and the run ends with an error. The key is blocked when the run ends, however it ends, and its spend is recorded about 12 seconds later, once LiteLLM has saved it. Budgets can be overshot slightly, by whatever the run spends in the last few seconds before the limit is noticed.
 
-Inside the container, the agent can read `/skills` and `/task` (read-only) and write to `/workspace`.
+Inside the container, the agent can read `/skills` and `/task` (read-only), write to `/workspace`, and `pip install` anything in the [PyPI mirror](#pypi-mirror).
 
 ### Tasks
 
@@ -219,11 +222,17 @@ Every run gets the literature server's tools (Claude Code names them `mcp__liter
 
 Results are cached in `litmcp/cache/` (PDFs in `litmcp/cache/pdfs/`), so repeated questions get identical answers without calling Semantic Scholar again. Delete the folder to start fresh. Figure reading via `get_page_image` relies on the model being multimodal.
 
-To see which literature tools an agent called:
+To see which literature tools an agent called, open the run in `inspect view` and filter its transcript by tool.
 
-```bash
-grep -o 'mcp__literature__[a-z_]*' runs/<run>/log.txt | sort | uniq -c
-```
+### Approval
+
+Inspect checks every tool call the model proposes against `approval.yaml` before the harness sees it. Groups are tried in order and the first whose `tools` pattern matches decides; a pattern without `*` matches as a prefix. Patterns use each harness's own tool names (e.g. `Bash` and `mcp__literature__search_papers` for Claude Code, `bash` and `literature_search_papers` for OpenCode). A rejected call is never run: the model is told it was refused and proposes something else.
+
+Every group currently uses the `auto` approver. To gate shell commands and file writes, change the last group's `name` to `human` (approve each call in Inspect's terminal display) or to a custom approver.
+
+### PyPI mirror
+
+The agent's `pip` installs from `pypiserver`, which serves only the wheels in `pypi/wheelhouse/`. `build_wheelhouse.sh` fills it by downloading every package in `pypi/allowlist.txt` with its dependencies, so those dependencies are installable too, and only at the downloaded versions. The wheels are built in the agent image so they match its Python version and CPU architecture; on Apple Silicon these are CPU-only Linux wheels.
 
 ### Making changes
 
@@ -231,95 +240,83 @@ If making changes to the sandbox, some files require extra changes being made el
 
 | If you've changed | Then |
 |---|---|
-| `agent/Dockerfile` or `agent/requirements.txt` | increment `AGENT_TAG` in `.env`, then run `./scripts/build.sh` |
+| `agent/Dockerfile` or `agent/requirements.txt` | increment `AGENT_TAG` in `.env`, then run `./scripts/build.sh` and `./scripts/build_wheelhouse.sh` |
+| `pypi/allowlist.txt` | run `./scripts/build_wheelhouse.sh`, then `docker compose restart pypiserver` |
+| `approval.yaml` or `agent/compose.yaml` | nothing; the next `aura run` uses them |
 | `litellm/config.yaml` | run `docker compose restart litellm`. If adding a provider, also add its key variable names to `litellm`'s `environment` in `docker-compose.yml` and run `docker compose up -d litellm` |
 | Anything in `litmcp/` | run `./scripts/build.sh`, then `docker compose up -d litmcp` (add or change its dependencies in the `litmcp` group in `pyproject.toml`, then `uv sync`; pre-commit regenerates `litmcp/requirements.txt`) |
 | Keys in `~/.zshrc` | run `source ~/.zshrc`, then `docker compose up -d litellm litmcp` |
 
 ### Rules
 
-- Only use `--dangerously-skip-permissions` (in `aura run`) inside the sandbox; the container is what makes it safe.
+- The harnesses skip their own permission prompts (`inspect_swe` passes `--dangerously-skip-permissions`); the container and `approval.yaml` are what make that safe.
 - Never mount the Docker socket, your home folder or `~/.claude` into the agent container.
 - Never commit keys: store in global environment only.
 
 ### Verifying the sandbox
 
-If needing to check the sandbox is still secure (e.g. after making changes), run the following. Most checks use a short-lived test key, like the one each run gets:
+If needing to check the sandbox is still secure (e.g. after making changes), run the following from the repo root, with the shared services running. `sandbox` starts a throwaway agent container from `agent/compose.yaml`, as Inspect does:
 
 ```bash
-# Test key: claude-haiku-4-5 only, $0.01, 10 minutes, model calls only
+export SAMPLE_METADATA_IMAGE="research-sandbox:$(grep '^AGENT_TAG=' .env | cut -d= -f2)"
+export SAMPLE_METADATA_RUN_DIR="$TMPDIR/aura-check" && mkdir -p "$SAMPLE_METADATA_RUN_DIR/task"
+sandbox() { docker compose -f agent/compose.yaml run --rm -T default "$@"; }
+
+# 1. A real run works → finishes; cost.json shows a spend above 0
+aura run dummy_task --model claude-haiku-4-5 --budget 0.05
+
+# 2. Gateway not reachable → "Could not resolve host"
+sandbox curl -sS --max-time 5 http://litellm:4000/health/liveliness
+
+# 3. No route out (covers Foundry, Semantic Scholar, arXiv, ...) → resolve error or timeout
+sandbox curl -sS --max-time 5 https://example.com
+
+# 4. Allowlisted package installs from the mirror → downloads successfully
+sandbox pip download seaborn -d /tmp/x
+
+# 5. Package outside the wheelhouse → "No matching distribution found"
+sandbox pip download flask -d /tmp/x
+
+# 6. Task is read-only → "Read-only file system"
+sandbox touch /task/test
+
+# 7. No secrets inside a real run → 0 (run while an `aura run` is in progress)
+docker exec "$(docker ps -q --filter name=inspect- | head -1)" env \
+  | grep -c -F -e "$AZURE_FOUNDRY_API_KEY" -e "$LITELLM_MASTER_KEY" -e "${S2_API_KEY:?}"
+
+# 8. Not root → uid=1000(agent)
+sandbox id
+
+# 9. Memory limit enforced → process killed or MemoryError
+sandbox python -c "b = bytearray(20 * 1024**3)"
+
+# 10. Fresh each run → first command succeeds; second says "No such file or directory"
+sandbox touch /tmp/marker
+sandbox ls /tmp/marker
+
+# 11. Literature server reachable → a list of tool names (search_papers, get_paper, ...)
+sandbox curl -s -X POST http://litmcp:8000/mcp \
+  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | grep -o '"name":"[a-z_]*"'
+
+# 12. Database not reachable from the sandbox → socket.gaierror (name not resolved)
+sandbox python -c "import socket; socket.create_connection(('postgres', 5432), timeout=5)"
+
+# 13. A run key can't create keys → an error, not a new key
 KEY=$(curl -s localhost:4000/key/generate -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
   -H 'Content-Type: application/json' -d '{"key_alias": "sandbox-check",
   "models": ["claude-haiku-4-5"], "max_budget": 0.01, "duration": "10m",
   "allowed_routes": ["llm_api_routes"]}' | jq -r .key)
-
-# 1. Gateway reachable → a short "alive" message
-RUN_DIR="$TMPDIR" docker compose run --rm -T agent curl -s http://litellm:4000/health/liveliness
-
-# 2. Model call works → a reply from the model
-RUN_MODEL=claude-haiku-4-5 RUN_KEY="$KEY" RUN_DIR="$TMPDIR" docker compose run --rm -T agent claude -p "Say hello" < /dev/null
-
-# 3. Blocked site via proxy → 403
-RUN_DIR="$TMPDIR" docker compose run --rm -T agent curl -sS https://example.com
-
-# 4. No direct route out → connection error or timeout
-RUN_DIR="$TMPDIR" docker compose run --rm -T agent curl --noproxy '*' --max-time 5 https://example.com
-
-# 5. Package install via proxy → downloads successfully
-RUN_DIR="$TMPDIR" docker compose run --rm -T agent pip download requests -d /tmp/x
-
-# 6. Data is read-only → "Read-only file system"
-RUN_DIR="$TMPDIR" docker compose run --rm -T agent touch /data/test
-
-# 7. No secrets inside a real run → 0 (run while an `aura run` is in progress)
-docker exec "$(docker ps -q --filter name=agent-run | head -1)" env \
-  | grep -c -F -e "$AZURE_FOUNDRY_API_KEY" -e "$LITELLM_MASTER_KEY"
-
-# 8. Not root → uid=1000(agent)
-RUN_DIR="$TMPDIR" docker compose run --rm -T agent id
-
-# 9. Memory limit enforced → process killed or MemoryError
-RUN_DIR="$TMPDIR" docker compose run --rm -T agent python -c "b = bytearray(20 * 1024**3)"
-
-# 10. Fresh each run → first command succeeds; second says "No such file or directory"
-RUN_DIR="$TMPDIR" docker compose run --rm -T agent touch /tmp/marker
-RUN_DIR="$TMPDIR" docker compose run --rm -T agent ls /tmp/marker
-
-# 11. Foundry not reachable directly → connection error or timeout (Foundry models only)
-RUN_DIR="$TMPDIR" docker compose run --rm -T agent curl --noproxy '*' --max-time 5 https://<resource-name>.services.ai.azure.com
-
-# 12. Literature server reachable → a list of tool names (search_papers, get_paper, ...)
-RUN_DIR="$TMPDIR" docker compose run --rm -T agent curl -s -X POST http://litmcp:8000/mcp \
-  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | grep -o '"name":"[a-z_]*"'
-
-# 13. Semantic Scholar not reachable directly → "Could not resolve host" or timeout
-RUN_DIR="$TMPDIR" docker compose run --rm -T agent curl -sS --noproxy '*' --max-time 5 https://api.semanticscholar.org
-
-# 14. arXiv not reachable via proxy → "CONNECT tunnel failed, response 403"
-RUN_DIR="$TMPDIR" docker compose run --rm -T agent curl -sS -o /dev/null https://arxiv.org
-
-# 15. Semantic Scholar key not inside → 0
-RUN_KEY="$KEY" RUN_DIR="$TMPDIR" docker compose run --rm -T agent env \
-  | grep -c -F -e "${S2_API_KEY:?set S2_API_KEY first}"
-
-# 16. Database not reachable from the sandbox → socket.gaierror (name not resolved)
-RUN_DIR="$TMPDIR" docker compose run --rm -T agent \
-  python -c "import socket; socket.create_connection(('postgres', 5432), timeout=5)"
-
-# 17. A run key can't create keys → an error, not a new key
 curl -s localhost:4000/key/generate -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' -d '{}'
-
-# 18. Budget enforced → the run stops with a budget error; cost.json still records its spend
-aura run dummy_task --budget 0.0001
-
-# Finally, block the test key
 curl -s localhost:4000/key/block -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
   -H 'Content-Type: application/json' -d "{\"key\": \"$KEY\"}" > /dev/null
+
+# 14. Budget enforced → the run stops with a budget error; cost.json still records its spend
+aura run dummy_task --budget 0.0001
 ```
 
-Checks 12–14 confirm that agents get literature only through `litmcp`, not directly from the internet. Checks 7 and 16–18 confirm that agents never hold the gateway's master key, can't reach its database, and are held to their run key's limits.
+Checks 2, 3 and 11 confirm that the agent reaches models only through Inspect's bridge and literature only through `litmcp`. Checks 7 and 12–14 confirm that agents never hold any key, can't reach the gateway's database, and are held to their run key's limits.
 
 ## License
 
