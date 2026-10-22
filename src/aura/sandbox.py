@@ -37,9 +37,23 @@ async def copy_workspace(state: TaskState) -> None:
     await sandbox().exec(["tar", "-czf", WORKSPACE_TAR, "-C", "/workspace", "."])
     data = await sandbox().read_file(WORKSPACE_TAR, text=False)
     workspace = Path(state.metadata["run_dir"]) / "workspace"
+
     def workspace_filter(
         member: tarfile.TarInfo, destination: str
     ) -> tarfile.TarInfo | None:
+        """
+        Apply tarfile's "data" filter, skipping links it rejects instead of failing.
+
+        A rejected link, such as a virtual environment's absolute `bin/python`
+        symlink, would otherwise abort extraction and lose the files after it.
+
+        Args:
+            member: Archive member about to be extracted.
+            destination: Folder the archive is extracted into.
+
+        Returns:
+            The member as the data filter allows it, or None to skip it.
+        """
         try:
             return tarfile.data_filter(member, destination)
         except (tarfile.AbsoluteLinkError, tarfile.LinkOutsideDestinationError):
