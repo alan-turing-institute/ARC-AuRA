@@ -86,6 +86,18 @@ Agents run with [Inspect](https://inspect.aisi.org.uk) in throwaway Docker conta
 | `aura run` | `src/aura/` | Assembles a task prompt and runs it as an Inspect eval in a fresh agent container. |
 | `tasks/` | | Task descriptions; see [Tasks](#tasks). |
 
+### Code layout
+
+| Module (`src/aura/`) | Role |
+|---|---|
+| `cli.py` | `aura` command-line entry point |
+| `run.py` | Runs a task: builds the prompt, makes the run folder and chains the steps below |
+| `task.py` | Assembles a task prompt from the files in `tasks/` |
+| `evaluation.py` | Builds and runs the one-sample Inspect eval, and copies `/workspace` out |
+| `gateway.py` | Per-run LiteLLM keys: creates, blocks and records the spend of each |
+| `harnesses/` | One function per harness, each building an Inspect agent from a model name |
+| `constants.py` | Paths, models (from `litellm/config.yaml`), tiers and stages |
+
 ### First time setup
 
 1. Add the environment variables required by the models you will use. See </litellm/config.yaml> for options; each provider key it reads must also be listed under `litellm`'s `environment` in `docker-compose.yml`. For example, if using `claude-haiku-4-5`, you will need the following keys:
@@ -243,7 +255,7 @@ If making changes to the sandbox, some files require extra changes being made el
 | `agent/Dockerfile` or `agent/requirements.txt` | increment `AGENT_TAG` in `.env`, then run `./scripts/build.sh` and `./scripts/build_wheelhouse.sh` |
 | `pypi/allowlist.txt` | run `./scripts/build_wheelhouse.sh`, then `docker compose restart pypiserver` |
 | `approval.yaml` or `agent/compose.yaml` | nothing; the next `aura run` uses them |
-| `litellm/config.yaml` | run `docker compose restart litellm`. If adding a provider, also add its key variable names to `litellm`'s `environment` in `docker-compose.yml` and run `docker compose up -d litellm` |
+| `litellm/config.yaml` | run `docker compose restart litellm`. If a provider rejects a request field Inspect sends, drop it for that model with `additional_drop_params` (see the Foundry models). If adding a provider, also add its key variable names to `litellm`'s `environment` in `docker-compose.yml` and run `docker compose up -d litellm` |
 | Anything in `litmcp/` | run `./scripts/build.sh`, then `docker compose up -d litmcp` (add or change its dependencies in the `litmcp` group in `pyproject.toml`, then `uv sync`; pre-commit regenerates `litmcp/requirements.txt`) |
 | Keys in `~/.zshrc` | run `source ~/.zshrc`, then `docker compose up -d litellm litmcp` |
 

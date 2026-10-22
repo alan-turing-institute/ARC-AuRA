@@ -1,5 +1,6 @@
 """Tests for src/aura/gateway.py, run without network using httpx.MockTransport."""
 
+import contextlib
 import json
 
 import httpx
@@ -64,3 +65,32 @@ def test_errors_give_litellm_message_without_keys(serve):
 
     assert RUN_KEY not in str(excinfo.value)
     assert MASTER_KEY not in str(excinfo.value)
+
+
+@pytest.fixture
+def lifecycle(serve, monkeypatch):
+    """Answer key create, block and info requests; return the paths requested."""
+    monkeypatch.setattr(gateway, "SPEND_WAIT", 0)
+    responses = {
+        "/key/generate": {"key": RUN_KEY},
+        "/key/block": {},
+        "/key/info": {"info": {"spend": 0.25}},
+    }
+    requests = serve(lambda r: httpx.Response(200, json=responses[r.url.path]))
+    return lambda: [r.url.path for r in requests]
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_run_key_is_blocked_and_cost_recorded(lifecycle, tmp_path, fails):
+    with (
+        pytest.raises(RuntimeError) if fails else contextlib.nullcontext(),
+        gateway.run_key(tmp_path, "claude-haiku-4-5", 0.5, "10m", {}) as key,
+    ):
+        assert key == RUN_KEY
+        if fails:
+            raise RuntimeError("Run error")
+
+    assert lifecycle() == ["/key/generate", "/key/block", "/key/info"]
+    cost = (tmp_path / "cost.json").read_text()
+    assert json.loads(cost)["spend_usd"] == 0.25
+    assert RUN_KEY not in cost

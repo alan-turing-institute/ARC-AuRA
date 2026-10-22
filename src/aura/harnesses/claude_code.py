@@ -12,7 +12,8 @@ def claude_code_agent(model: str) -> Agent:
     sandbox.
 
     Args:
-        model: Unused; Claude Code's model calls go to the eval's model via the bridge.
+        model: Model name as configured in the LiteLLM gateway; sets the model
+            Claude Code presents as. Its calls go to the eval's model via the bridge.
 
     Returns:
         The agent, to use as an Inspect solver.
@@ -20,6 +21,7 @@ def claude_code_agent(model: str) -> Agent:
     return claude_code(
         version="sandbox",
         cwd="/workspace",
+        model_config=model,
         mcp_servers=mcp_servers(),
         disallowed_tools=["WebSearch", "WebFetch"],
     )
