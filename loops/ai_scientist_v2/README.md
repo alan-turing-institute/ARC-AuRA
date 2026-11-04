@@ -27,7 +27,7 @@ model, decides what to try next.
    | Phase | Operator | Ends when | Node cap |
    |---|---|---|---|
    | `initial_implementation` | draft (up to 3), then improve | a node works | 6 |
-   | `baseline_tuning` | tune one setting | a node beats the start node and the model says it's done | 3 |
+   | `baseline_tuning` | tune one setting | the best node beats the start node and the model says it's done | 3 |
    | `creative_research` | improve | the cap | 3 |
    | `ablation_studies` | ablate one component | the cap | 4 |
 

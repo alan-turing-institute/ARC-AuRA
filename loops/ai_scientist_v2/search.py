@@ -96,32 +96,23 @@ def best_node(model: str, idea: dict, nodes: list[Node]) -> Node | None:
     return chosen[0] if chosen else _best_metric(working, metric["higher_is_better"])
 
 
-def phase_done(
-    phase: str,
-    nodes: list[Node],
-    start: Node | None,
-    higher_is_better: bool,
-    judged_done: bool,
-) -> bool:
+def phase_done(phase: str, nodes: list[Node], judged_done: bool) -> bool:
     """
     Decide whether a phase has met its goal; `_run_phase` enforces the iteration cap.
 
     Args:
         phase: Key of `prompts.PHASE_GOALS`.
         nodes: This phase's nodes.
-        start: Previous phase's best node; None in phase 1.
-        higher_is_better: Direction of the idea's metric.
-        judged_done: From `_tuning_done`; only used in baseline_tuning.
+        judged_done: Whether the best node beats the phase's start node and the
+            model judges tuning done; only used in baseline_tuning.
 
     Returns:
         Whether the phase has met its goal.
     """
-    working = [n for n in nodes if n.is_bug is False]
     if phase == "initial_implementation":
-        return bool(working)
+        return any(n.is_bug is False for n in nodes)
     if phase == "baseline_tuning":
-        beats = [n for n in working if _beats(n, start, higher_is_better)]
-        return judged_done and bool(beats)
+        return judged_done
     return False
 
 
@@ -230,14 +221,14 @@ def _run_phase(
         best = best_node(model, idea, nodes + ([start] if start else []))
         if best:
             bests[phase] = best
-        # Only ask the model once tuning has found a new best, as upstream does
+        # Only ask the model once the best node beats the phase's start node, so
+        # tuning can't end on a pick that is worse than the baseline
         judged = (
             phase == "baseline_tuning"
-            and best is not start
+            and _beats(best, start, idea["Metric"]["higher_is_better"])
             and _tuning_done(model, best)
         )
-        higher_is_better = idea["Metric"]["higher_is_better"]
-        if phase_done(phase, nodes, start, higher_is_better, judged):
+        if phase_done(phase, nodes, judged):
             break
     emit("phase_end", phase=phase, best=best.id if best else None)
     return best
