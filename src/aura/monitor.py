@@ -83,8 +83,8 @@ def parse_score(text: str) -> tuple[int | None, str]:
         The score, or None if the reply isn't in the expected format, and the
         reasoning (the whole reply when the format is wrong).
     """
-    score = re.search(r"<score>\s*(\d+)\s*</score>", text)
-    reasoning = re.search(r"<reasoning>(.*?)</reasoning>", text, re.DOTALL)
+    score = re.search(r"<score>\s*(\d+)\s*</score>\s*$", text)
+    reasoning = re.search(r"<reasoning>(.*)</reasoning>", text, re.DOTALL)
     if not (score and reasoning):
         return None, text.strip()
     return int(score.group(1)), reasoning.group(1).strip()
