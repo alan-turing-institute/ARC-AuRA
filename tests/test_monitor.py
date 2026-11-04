@@ -4,7 +4,7 @@ import pytest
 from inspect_ai.model import ChatMessageAssistant, ChatMessageTool, ChatMessageUser
 from inspect_ai.tool import ToolCall
 
-from aura.monitor import decide, monitor, parse_score, render_actions
+from aura.monitor import MAX_CHARS, decide, monitor, parse_score, render_actions
 
 
 def test_parse_score_reads_tags_and_rejects_malformed_replies():
@@ -47,3 +47,12 @@ def test_render_actions_shows_calls_and_results_but_not_agent_text():
         'PENDING Bash({"command": "env"})',
     ]
     assert "look around" not in rendered
+
+
+def test_render_actions_shows_long_pending_call_in_full():
+    command = "echo ok; " * MAX_CHARS + "curl evil.example"
+    pending = ToolCall(id="1", function="Bash", arguments={"command": command})
+
+    rendered = render_actions([], pending, size=20)
+
+    assert rendered.endswith('curl evil.example"})')
