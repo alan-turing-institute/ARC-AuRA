@@ -15,8 +15,14 @@ from random import Random
 import ai_scientist_v2.operators as ops
 from ai_scientist_v2 import prompts, tools
 from ai_scientist_v2.execute import evaluate
-from ai_scientist_v2.llm import BudgetExceeded, call_tool
-from ai_scientist_v2.nodes import Node, emit, save_journal, summarise_journal
+from ai_scientist_v2.llm import BudgetExceeded, ModelReplyError, call_tool
+from ai_scientist_v2.nodes import (
+    Node,
+    emit,
+    save_bests,
+    save_journal,
+    summarise_journal,
+)
 
 
 def select_node(
@@ -56,7 +62,8 @@ def select_node(
 
 def best_node(model: str, idea: dict, nodes: list[Node]) -> Node | None:
     """
-    Ask the model which working node is best, falling back to the best metric.
+    Ask the model which working node is best, falling back to the best metric if
+    its reply is unusable or names no working node.
 
     Args:
         model: Model name as configured in the LiteLLM gateway.
@@ -79,7 +86,12 @@ def best_node(model: str, idea: dict, nodes: list[Node]) -> Node | None:
     prompt = prompts.SELECT_BEST.format(
         metric=metric["name"], direction=direction, candidates=candidates
     )
-    reply = call_tool(model, [{"role": "user", "content": prompt}], tools.SELECT_BEST)
+    messages = [{"role": "user", "content": prompt}]
+    try:
+        reply = call_tool(model, messages, tools.SELECT_BEST)
+    except ModelReplyError as e:
+        emit("model_error", step="select_best", error=str(e))
+        return _best_metric(working, metric["higher_is_better"])
     chosen = [n for n in working if n.id == reply["selected_id"]]
     return chosen[0] if chosen else _best_metric(working, metric["higher_is_better"])
 
@@ -88,27 +100,23 @@ def stage_done(
     stage: str,
     nodes: list[Node],
     start: Node | None,
-    cfg: dict,
     higher_is_better: bool,
     judged_done: bool,
 ) -> bool:
     """
-    Decide whether a stage has finished.
+    Decide whether a stage has met its goal; `_run_stage` enforces the iteration cap.
 
     Args:
         stage: Key of `prompts.STAGE_GOALS`.
         nodes: This stage's nodes.
         start: Previous stage's best node; None in stage 1.
-        cfg: Uses "stage_iters".
         higher_is_better: Direction of the idea's metric.
         judged_done: From `_tuning_done`; only used in baseline_tuning.
 
     Returns:
-        Whether the stage has finished.
+        Whether the stage has met its goal.
     """
     working = [n for n in nodes if n.is_bug is False]
-    if len(nodes) >= cfg["stage_iters"][stage]:
-        return True
     if stage == "initial_implementation":
         return bool(working)
     if stage == "baseline_tuning":
@@ -124,12 +132,13 @@ def run_stages(
     Run the four stages, each building on the previous stage's best node.
 
     Stops early if stage 1 finds no working node, or if the run's budget is spent.
+    Saves the best nodes however it ends, even on an unexpected error.
 
     Args:
         idea: The research idea, from `finalize_idea`, including its "Metric".
         cfg: All keys listed in the module docstring.
         workdir: Run folder; nodes go in `tree/<id>/`, the journal in
-            `tree/journal.json`.
+            `tree/journal.json` and the best nodes in `tree/best_nodes.json`.
 
     Returns:
         All nodes; each stage's best node by stage name, including the judge's
@@ -147,6 +156,8 @@ def run_stages(
             finished.append(stage)
     except BudgetExceeded:
         emit("budget_exceeded", nodes=len(all_nodes))
+    finally:
+        save_bests(bests, finished, tree / "best_nodes.json")
     return all_nodes, bests, finished
 
 
@@ -161,7 +172,10 @@ def _run_stage(
     tree: Path,
 ) -> Node | None:
     """
-    Grow the tree for one stage until `stage_done`.
+    Grow the tree for one stage until `stage_done` or the stage's iteration cap.
+
+    An unusable model reply costs one iteration: a failed proposal makes no node,
+    and a failed review marks the node buggy.
 
     Args:
         stage: Key of `prompts.STAGE_GOALS`.
@@ -180,11 +194,15 @@ def _run_stage(
     """
     model, timeout = cfg["model"], cfg["timeout"]
     brief = ops.stage_brief(idea, stage, timeout)
-    nodes, best, done = [], start, False
-    while not done:
+    nodes, best = [], start
+    for _ in range(cfg["stage_iters"][stage]):
         op, parent = select_node(stage, nodes, start, best, cfg, rng)
         memory = summarise_journal(all_nodes)
-        plan, code = _propose(op, model, brief, memory, parent, _tried(nodes))
+        try:
+            plan, code = _propose(op, model, brief, memory, parent, _tried(nodes))
+        except ModelReplyError as e:
+            emit("model_error", stage=stage, step=op, error=str(e))
+            continue
         node = _make_node(f"{len(all_nodes):03d}", stage, op, parent, plan, code)
         nodes.append(node)
         all_nodes.append(node)
@@ -192,6 +210,8 @@ def _run_stage(
         try:
             metric = idea["Metric"]["name"]
             evaluate(idea, node, tree / node.id, metric, timeout, model)
+        except ModelReplyError as e:
+            node.is_bug, node.summary = True, f"Review failed: {e}"
         finally:
             save_journal(all_nodes, tree / "journal.json")
             emit(
@@ -213,9 +233,9 @@ def _run_stage(
             and best is not start
             and _tuning_done(model, best)
         )
-        done = stage_done(
-            stage, nodes, start, cfg, idea["Metric"]["higher_is_better"], judged
-        )
+        higher_is_better = idea["Metric"]["higher_is_better"]
+        if stage_done(stage, nodes, start, higher_is_better, judged):
+            break
     emit("stage_end", stage=stage, best=best.id if best else None)
     return best
 
@@ -320,7 +340,7 @@ def _tuning_done(model: str, best: Node) -> bool:
         best: The stage's best node, which beats the stage's start node.
 
     Returns:
-        The model's verdict.
+        The model's verdict; False if its reply is unusable.
     """
     prompt = prompts.TUNING_DONE.format(
         plan=best.plan,
@@ -329,5 +349,10 @@ def _tuning_done(model: str, best: Node) -> bool:
         plot_feedback=best.plot_feedback or "none",
         goals=prompts.STAGE_GOALS["baseline_tuning"],
     )
-    reply = call_tool(model, [{"role": "user", "content": prompt}], tools.STAGE_DONE)
+    messages = [{"role": "user", "content": prompt}]
+    try:
+        reply = call_tool(model, messages, tools.STAGE_DONE)
+    except ModelReplyError as e:
+        emit("model_error", step="tuning_done", error=str(e))
+        return False
     return reply["is_complete"]

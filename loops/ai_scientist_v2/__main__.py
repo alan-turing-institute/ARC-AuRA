@@ -7,7 +7,7 @@ from pathlib import Path
 from ai_scientist_v2 import report
 from ai_scientist_v2.idea import generate_idea
 from ai_scientist_v2.llm import BudgetExceeded
-from ai_scientist_v2.nodes import emit, save_bests
+from ai_scientist_v2.nodes import emit
 from ai_scientist_v2.prompts import STAGE_GOALS
 from ai_scientist_v2.search import run_stages
 
@@ -71,8 +71,7 @@ def main(args: argparse.Namespace) -> None:
             report.save_output(results, "lit_review", text)
         if "search" not in steps:
             return
-        nodes, bests, finished = run_stages(idea, config, workdir)
-        save_bests(bests, finished, workdir / "tree" / "best_nodes.json")
+        nodes, bests, _ = run_stages(idea, config, workdir)
         if "experiments" in stages:
             report.write_experiments(bests, workdir / "tree", results / "experiments")
         if "analysis" not in steps:

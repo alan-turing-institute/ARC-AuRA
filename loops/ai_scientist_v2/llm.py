@@ -16,6 +16,10 @@ class BudgetExceeded(Exception):
     """The run key's budget or time is spent, so the gateway refuses model calls."""
 
 
+class ModelReplyError(Exception):
+    """The model's reply is unusable: cut off, missing its tool call, or bad JSON."""
+
+
 def query(
     model: str,
     messages: list[dict],
@@ -36,7 +40,7 @@ def query(
 
     Raises:
         BudgetExceeded: The run key's budget is spent, or the key has expired.
-        RuntimeError: The reply was cut off at `_MAX_TOKENS`.
+        ModelReplyError: The reply was cut off at `_MAX_TOKENS`.
     """
     try:
         response = litellm.completion(
@@ -55,7 +59,7 @@ def query(
             raise BudgetExceeded(str(e)) from e
         raise
     if response.choices[0].finish_reason == "length":
-        raise RuntimeError(f"The model's reply was cut off at {_MAX_TOKENS} tokens.")
+        raise ModelReplyError(f"The model's reply was cut off at {_MAX_TOKENS} tokens.")
     return response.choices[0].message
 
 
@@ -74,13 +78,20 @@ def call_tool(model: str, messages: list[dict], tool: dict) -> dict:
 
     Returns:
         json.loads of the tool's arguments, as returned by the model.
+
+    Raises:
+        ModelReplyError: The reply has no tool call, or its arguments aren't JSON.
     """
     name = tool["function"]["name"]
     system = {"role": "system", "content": prompts.CALL_TOOL.format(name=name)}
     message = query(model, [system, *messages], tools=[tool], tool_choice="auto")
     if not message.tool_calls:
-        raise ValueError(f"Model replied without calling `{name}`: {message.content}")
-    return json.loads(message.tool_calls[0].function.arguments)
+        content = message.content
+        raise ModelReplyError(f"Model replied without calling `{name}`: {content}")
+    try:
+        return json.loads(message.tool_calls[0].function.arguments)
+    except json.JSONDecodeError as e:
+        raise ModelReplyError(f"`{name}` arguments aren't valid JSON: {e}") from e
 
 
 def image_contents(path: str) -> dict:

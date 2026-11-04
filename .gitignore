@@ -40,3 +40,7 @@ Thumbs.db
 
 # Ignore litmcp cache
 litmcp/cache/
+
+# Ignore the PyPI mirror wheelhouse (built by scripts/build_wheelhouse.sh)
+pypi/wheelhouse/
+pypi/staging/
