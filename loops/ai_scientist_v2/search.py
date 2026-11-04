@@ -134,6 +134,9 @@ def run_stages(
     Stops early if stage 1 finds no working node, or if the run's budget is spent.
     Saves the best nodes however it ends, even on an unexpected error.
 
+    NB: bests is modified in place by _run_stage, so it survives a BudgetExceeded
+        raised mid-stage.
+
     Args:
         idea: The research idea, from `finalize_idea`, including its "Metric".
         cfg: All keys listed in the module docstring.
