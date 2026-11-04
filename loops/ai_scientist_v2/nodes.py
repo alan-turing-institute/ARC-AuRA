@@ -12,7 +12,7 @@ class Node:
 
     Attributes:
         id: Unique ID, also the name of the node's folder in `tree/`.
-        stage: Search stage: initial_implementation, baseline_tuning,
+        phase: Search phase: initial_implementation, baseline_tuning,
             creative_research or ablation_studies.
         op: Operator that made it: draft, debug, improve, tune or ablate.
         parent_id: ID of the node it was made from; None for a draft.
@@ -30,7 +30,7 @@ class Node:
     """
 
     id: str
-    stage: str
+    phase: str
     op: str
     parent_id: str | None
     plan: str
@@ -51,16 +51,16 @@ def save_journal(nodes: list[Node], path: Path) -> None:
 
 
 def save_bests(bests: dict[str, Node], finished: list[str], path: Path) -> None:
-    """Write each stage's best node (ID, folder, metric, summary) and if it finished."""
+    """Write each phase's best node (ID, folder, metric, summary) and if it finished."""
     summary = {
-        stage: {
+        phase: {
             "id": n.id,
             "folder": f"tree/{n.id}",
             "metric": n.metric,
             "summary": n.summary,
-            "finished": stage in finished,
+            "finished": phase in finished,
         }
-        for stage, n in bests.items()
+        for phase, n in bests.items()
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(summary, indent=2))

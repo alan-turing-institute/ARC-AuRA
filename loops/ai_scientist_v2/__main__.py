@@ -8,8 +8,8 @@ from ai_scientist_v2 import report
 from ai_scientist_v2.idea import generate_idea
 from ai_scientist_v2.llm import BudgetExceeded
 from ai_scientist_v2.nodes import emit
-from ai_scientist_v2.prompts import STAGE_GOALS
-from ai_scientist_v2.search import run_stages
+from ai_scientist_v2.prompts import PHASE_GOALS
+from ai_scientist_v2.search import run_phases
 
 # A copy of `aura.constants.STAGES`, which the container can't import
 STAGES = (
@@ -51,7 +51,7 @@ def main(args: argparse.Namespace) -> None:
         "num_drafts": args.num_drafts,
         "debug_prob": args.debug_prob,
         "max_debug_depth": args.max_debug_depth,
-        "stage_iters": dict(zip(STAGE_GOALS, args.stage_iters, strict=True)),
+        "phase_iters": dict(zip(PHASE_GOALS, args.phase_iters, strict=True)),
     }
     model, stages, steps = args.model, set(args.stages), steps_needed(args.stages)
     workdir = Path("/workspace")
@@ -71,7 +71,7 @@ def main(args: argparse.Namespace) -> None:
             report.save_output(results, "lit_review", text)
         if "search" not in steps:
             return
-        nodes, bests, _ = run_stages(idea, config, workdir)
+        nodes, bests, _ = run_phases(idea, config, workdir)
         if "experiments" in stages:
             report.write_experiments(bests, workdir / "tree", results / "experiments")
         if "analysis" not in steps:
@@ -113,7 +113,7 @@ if __name__ == "__main__":
         help="Most rounds of the idea step before the idea must be finalised.",
     )
     parser.add_argument(
-        "--num-drafts", type=int, default=3, help="Drafts to make in search stage 1."
+        "--num-drafts", type=int, default=3, help="Drafts to make in search phase 1."
     )
     parser.add_argument(
         "--debug-prob",
@@ -128,11 +128,11 @@ if __name__ == "__main__":
         help="Most debug steps in a row on one line of nodes.",
     )
     parser.add_argument(
-        "--stage-iters",
+        "--phase-iters",
         type=int,
         nargs=4,
         default=[6, 3, 3, 4],
-        help="Most nodes in each of the four search stages, in order.",
+        help="Most nodes in each of the four search phases, in order.",
     )
     parser.add_argument(
         "--num-cite-rounds",

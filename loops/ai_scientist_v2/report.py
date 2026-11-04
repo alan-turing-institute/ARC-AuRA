@@ -88,7 +88,7 @@ def write_experiments(bests: dict[str, Node], tree: Path, out: Path) -> None:
     Copy the main best node's script, metrics and plots, and the journal.
 
     Args:
-        bests: Each search stage's best node, from `run_stages`.
+        bests: Each search phase's best node, from `run_phases`.
         tree: The search's folder, with the nodes' folders and `journal.json`.
         out: The experiments output folder, created if missing.
     """
@@ -112,8 +112,8 @@ def write_analysis(
 
     Args:
         idea: The research idea, from `generate_idea`.
-        bests: Each search stage's best node, from `run_stages`.
-        nodes: Every node, from `run_stages`.
+        bests: Each search phase's best node, from `run_phases`.
+        nodes: Every node, from `run_phases`.
         model: Model name as configured in the LiteLLM gateway.
 
     Returns:
@@ -132,7 +132,7 @@ def write_analysis(
     ablations = "\n".join(
         f"- {original_ablation(n).plan.splitlines()[0]}: {metric['name']} = {n.metric}"
         for n in nodes
-        if n.stage == "ablation_studies" and n.is_bug is False
+        if n.phase == "ablation_studies" and n.is_bug is False
     )
     return _ask(
         model,
@@ -214,7 +214,7 @@ def write_report(
     Args:
         idea: The research idea, from `generate_idea`.
         analysis: From `write_analysis`.
-        bests: Each search stage's best node, from `run_stages`.
+        bests: Each search phase's best node, from `run_phases`.
         cited: From `gather_citations`.
         model: Model name as configured in the LiteLLM gateway.
 
@@ -245,18 +245,18 @@ def _ask(model: str, system: str, prompt: str) -> str:
 
 
 def _main_best(bests: dict[str, Node]) -> Node | None:
-    """The best node of the last search stage before the ablations."""
-    main = [n for stage, n in bests.items() if stage != "ablation_studies"]
+    """The best node of the last search phase before the ablations."""
+    main = [n for phase, n in bests.items() if phase != "ablation_studies"]
     return main[-1] if main else None
 
 
 def _bests_text(bests: dict[str, Node]) -> str:
-    """Each search stage's best node: its plan, metric and review."""
+    """Each search phase's best node: its plan, metric and review."""
     return (
         "\n\n".join(
-            f"{stage} (node {n.id}):\nPlan: {n.plan}\nMetric: {n.metric}\n"
+            f"{phase} (node {n.id}):\nPlan: {n.plan}\nMetric: {n.metric}\n"
             f"Review: {n.summary}\nPlot feedback: {n.plot_feedback or 'none'}"
-            for stage, n in bests.items()
+            for phase, n in bests.items()
         )
         or "No implementation worked."
     )

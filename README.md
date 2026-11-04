@@ -192,7 +192,7 @@ Inside the container, the agent can read `/skills` and `/task` (read-only) and w
 ### Harnesses
 
 - `claude-code` and `opencode` run those agents, which follow the prompt to produce each stage's output.
-- `ai-scientist-v2` runs `loops/ai_scientist_v2/`, a compact reimplementation of [The AI Scientist-v2](https://arxiv.org/abs/2504.08066): it turns the task into an idea with a literature search, runs a four-stage tree search over experiment scripts, then writes the stage outputs. It runs only as far as the requested `--stages` need, e.g. `--stages lit_review` runs no experiments. It also writes `workspace/idea.json` and `workspace/tree/`, with each attempt's script, metrics and plots, `journal.json` (every attempt) and `best_nodes.json` (each search stage's best). Its `log.txt` events are `idea`, `node`, `stage_end` and `output`.
+- `ai-scientist-v2` runs `loops/ai_scientist_v2/`, a compact reimplementation of [The AI Scientist-v2](https://arxiv.org/abs/2504.08066): it turns the task into an idea with a literature search, runs a four-phase tree search over experiment scripts, then writes the stage outputs. It runs only as far as the requested `--stages` need, e.g. `--stages lit_review` runs no experiments. It also writes `workspace/idea.json` and `workspace/tree/`, with each attempt's script, metrics and plots, `journal.json` (every attempt) and `best_nodes.json` (each search phase's best). Its `log.txt` events are `idea`, `node`, `phase_end` and `output`.
 
 ### Tasks
 

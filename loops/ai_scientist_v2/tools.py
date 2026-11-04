@@ -135,7 +135,7 @@ ANALYZE_PLOTS = _function(
     ["feedback"],
 )
 
-# Best node and stage completion: `ai_scientist/treesearch/agent_manager.py`
+# Best node and phase completion: `ai_scientist/treesearch/agent_manager.py`
 SELECT_BEST = _function(
     "select_best_implementation",
     "Select the best implementation based on all the evidence.",
@@ -146,11 +146,11 @@ SELECT_BEST = _function(
     ["selected_id", "reasoning"],
 )
 
-STAGE_DONE = _function(
-    "evaluate_stage_completion",
-    "Evaluate whether the current stage is complete.",
+PHASE_DONE = _function(
+    "evaluate_phase_completion",
+    "Evaluate whether the current phase is complete.",
     {
-        "is_complete": _boolean("Whether the current stage is complete."),
+        "is_complete": _boolean("Whether the current phase is complete."),
         "reasoning": _string("Reasoning for the decision."),
     },
     ["is_complete", "reasoning"],

@@ -10,17 +10,17 @@ from ai_scientist_v2.llm import call_tool
 from ai_scientist_v2.nodes import Node
 
 
-def stage_brief(idea: dict, stage: str, timeout: int) -> str:
+def phase_brief(idea: dict, phase: str, timeout: int) -> str:
     """
-    Build the part of every operator prompt that stays fixed within a stage.
+    Build the part of every operator prompt that stays fixed within a phase.
 
     Args:
         idea: The research idea, from `finalize_idea`, including its "Metric".
-        stage: Key of `prompts.STAGE_GOALS`.
+        phase: Key of `prompts.PHASE_GOALS`.
         timeout: Script timeout, in seconds.
 
     Returns:
-        The research idea, the stage's goals and the implementation guidelines.
+        The research idea, the phase's goals and the implementation guidelines.
     """
     research_idea = prompts.RESEARCH_IDEA.format(
         title=idea["Title"],
@@ -33,7 +33,7 @@ def stage_brief(idea: dict, stage: str, timeout: int) -> str:
     )
     return _sections(
         ("Your research idea", research_idea),
-        ("Current stage", f"{stage}\n{prompts.STAGE_GOALS[stage]}"),
+        ("Current phase", f"{phase}\n{prompts.PHASE_GOALS[phase]}"),
         ("Implementation guideline", guideline),
     )
 
@@ -44,7 +44,7 @@ def draft(model: str, brief: str, memory: str) -> tuple[str, str]:
 
     Args:
         model: Model name as configured in the LiteLLM gateway.
-        brief: From `stage_brief`.
+        brief: From `phase_brief`.
         memory: From `summarise_journal`.
 
     Returns:
@@ -65,7 +65,7 @@ def debug(model: str, brief: str, parent: Node) -> tuple[str, str]:
 
     Args:
         model: Model name as configured in the LiteLLM gateway.
-        brief: From `stage_brief`.
+        brief: From `phase_brief`.
         parent: The buggy node.
 
     Returns:
@@ -85,11 +85,11 @@ def debug(model: str, brief: str, parent: Node) -> tuple[str, str]:
 
 def improve(model: str, brief: str, memory: str, parent: Node) -> tuple[str, str]:
     """
-    Change a working node to do better, following the stage's goals.
+    Change a working node to do better, following the phase's goals.
 
     Args:
         model: Model name as configured in the LiteLLM gateway.
-        brief: From `stage_brief`.
+        brief: From `phase_brief`.
         memory: From `summarise_journal`.
         parent: The working node to build on.
 
@@ -114,9 +114,9 @@ def tune(model: str, brief: str, parent: Node, tried: list[str]) -> tuple[str, s
 
     Args:
         model: Model name as configured in the LiteLLM gateway.
-        brief: From `stage_brief`.
+        brief: From `phase_brief`.
         parent: The working node to tune.
-        tried: Names of settings already changed in this stage.
+        tried: Names of settings already changed in this phase.
 
     Returns:
         The plan, starting "Setting: <name>", and the script.
@@ -137,9 +137,9 @@ def ablate(model: str, brief: str, parent: Node, tried: list[str]) -> tuple[str,
 
     Args:
         model: Model name as configured in the LiteLLM gateway.
-        brief: From `stage_brief`.
+        brief: From `phase_brief`.
         parent: The working node to ablate.
-        tried: Names of ablations already run in this stage.
+        tried: Names of ablations already run in this phase.
 
     Returns:
         The plan, starting "Ablation: <name>", and the script.

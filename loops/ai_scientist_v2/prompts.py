@@ -43,10 +43,10 @@ IDEA_REFLECTION = (
     "are glaring issues. Incorporate any new results from your searches."
 )
 
-# Search stages: `ai_scientist/treesearch/agent_manager.py` (`main_stage_goals`),
+# Search phases: `ai_scientist/treesearch/agent_manager.py` (`main_stage_goals`),
 # generalised from training ML models to any computational research, with data
-# offline. In stage order.
-STAGE_GOALS = {
+# offline. In phase order.
+PHASE_GOALS = {
     "initial_implementation": (
         "- Get a basic, working first version of the experiment, analysis or "
         "simulation\n"
@@ -57,7 +57,7 @@ STAGE_GOALS = {
         "- Refine the settings of the current approach so its results are better or "
         "more reliable, e.g. sample sizes, iterations, parameters, thresholds or "
         "preprocessing choices\n"
-        "- DO NOT change the approach itself from the previous stage\n"
+        "- DO NOT change the approach itself from the previous phase\n"
         "- Where it makes sense, check that the results hold on other data or settings"
     ),
     "creative_research": (
@@ -68,7 +68,7 @@ STAGE_GOALS = {
     "ablation_studies": (
         "- Find out which parts of the approach matter: remove or vary one component, "
         "assumption or choice at a time and measure its effect on the results\n"
-        "- Keep the data and everything else as in the previous stage"
+        "- Keep the data and everything else as in the previous phase"
     ),
 }
 
@@ -114,7 +114,7 @@ DRAFT_INTRO = (
     "data to computing and visualising the results. Focus on getting a "
     "simple but working implementation "
     "first, before any sophisticated improvements. We will explore more "
-    "advanced variations in later stages."
+    "advanced variations in later phases."
 )
 
 DRAFT_GUIDELINE = (
@@ -141,7 +141,7 @@ DEBUG_GUIDELINE = (
 IMPROVE_INTRO = (
     "You are an experienced researcher. You are provided with a previously "
     "developed implementation. Your task is to improve it based on the "
-    "current experimental stage."
+    "current experimental phase."
 )
 
 IMPROVE_GUIDELINE = (
@@ -204,7 +204,7 @@ REVIEW_PLOTS = (
     "Research idea:\n{idea}"
 )
 
-# Best node and stage completion: `ai_scientist/treesearch/agent_manager.py` and
+# Best node and phase completion: `ai_scientist/treesearch/agent_manager.py` and
 # `journal.py` (`get_best_node`)
 SELECT_BEST = (
     "You are an experienced researcher evaluating different implementations of "
@@ -219,13 +219,13 @@ SELECT_BEST = (
 )
 
 TUNING_DONE = (
-    "Evaluate if the baseline tuning stage is complete, based on the following "
+    "Evaluate if the baseline tuning phase is complete, based on the following "
     "evidence from its best implementation.\n\n"
     "Plan: {plan}\n"
     "Metric: {metric}\n"
     "Review: {summary}\n"
     "Plot feedback: {plot_feedback}\n\n"
-    "The stage's goals:\n{goals}\n\n"
+    "The phase's goals:\n{goals}\n\n"
     "Requirements for completion:\n"
     "1. The results should be stable and reliable\n"
     "2. Where it makes sense, they should hold on more than one dataset or "
@@ -254,7 +254,7 @@ ANALYSIS_SYSTEM = (
 ANALYSIS = (
     "Research idea:\n{idea}\n\n"
     "The metric is `{metric}`, and {direction} is better.\n\n"
-    "Best implementation of each search stage:\n{bests}\n\n"
+    "Best implementation of each search phase:\n{bests}\n\n"
     "Ablations, against {metric} = {base} before ablating:\n{ablations}\n\n"
     "Recent attempts:\n{journal}\n\n"
     "Write a markdown analysis of what the results show about the hypothesis, "
@@ -322,7 +322,7 @@ REPORT_SYSTEM = (
 REPORT = (
     "Write up the following idea:\n{idea}\n\n"
     "Your analysis of the results:\n{analysis}\n\n"
-    "Best implementation of each search stage:\n{bests}\n\n"
+    "Best implementation of each search phase:\n{bests}\n\n"
     "Papers you can cite:\n{citations}\n\n"
     "Quote numbers only from the metrics given, and cite papers only by their "
     "number, e.g. [3]."
