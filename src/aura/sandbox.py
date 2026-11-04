@@ -13,6 +13,8 @@ from inspect_ai.approval import (
     read_approval_policies,
 )
 from inspect_ai.dataset import Sample
+from inspect_ai.event import ModelEvent
+from inspect_ai.log import EvalLog
 from inspect_ai.model import Model, get_model
 from inspect_ai.solver import TaskState
 from inspect_ai.util import sandbox
@@ -110,6 +112,15 @@ def build_task(
     )
 
 
+def budget_exceeded(log: EvalLog) -> bool:
+    """Return whether the gateway refused any model call for exceeding the budget."""
+    return any(
+        isinstance(event, ModelEvent) and "budget_exceeded" in (event.error or "")
+        for sample in log.samples or []
+        for event in sample.events
+    )
+
+
 def gateway_model(model: str, run_key: str) -> Model:
     """Return an Inspect model that calls `model` through the gateway."""
     return get_model(f"anthropic/{model}", base_url=GATEWAY_URL, api_key=run_key)
@@ -129,7 +140,7 @@ def run_in_sandbox(
         run_key: Gateway key for the run's model calls; it never enters the sandbox.
 
     Raises:
-        RuntimeError: If the run doesn't finish successfully.
+        RuntimeError: If the run doesn't finish successfully, or runs out of budget.
     """
     (log,) = eval(
         task,
@@ -141,3 +152,5 @@ def run_in_sandbox(
         raise RuntimeError(
             f"Run {log.status}: {log.error.message if log.error else ''}"
         )
+    if budget_exceeded(log):
+        raise RuntimeError("Run ran out of budget, outputs may be incomplete")
