@@ -143,8 +143,8 @@ journal is saved after every node.
   code read from `metrics.json`.
 - **`metrics.json`**: the metric must be a top-level finite number; anything else
   makes the node buggy.
-- **Tool calls** (`llm.call_tool`): the loop asks for a tool with a system message
-  and `tool_choice="auto"`, since some models (e.g. Opus 5.5) reject a forced choice.
+- **Tool calls** (`llm.call_tool`): the loop asks for a tool with a final user
+  message and `tool_choice="auto"`, since some models (e.g. Opus 5.5) reject a forced choice.
   A reply without the tool call, cut off or with invalid JSON raises
   `ModelReplyError`. In the search, that costs one iteration (a failed review marks
   the node buggy) instead of ending the run; elsewhere it ends the run.

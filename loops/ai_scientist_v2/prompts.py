@@ -6,7 +6,7 @@ upstream source. Changes from upstream are listed in this folder's README.
 """
 
 # Our addition: some models, e.g. Opus 5.5, reject a forced tool_choice
-CALL_TOOL = "Reply by calling the `{name}` tool."
+CALL_TOOL = "Reply by calling the `{name}` tool, the only tool available now."
 
 # Idea: `ai_scientist/perform_ideation_temp_free.py`. The task takes the place of the
 # workshop description, and the sandbox limits are added.

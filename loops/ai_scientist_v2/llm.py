@@ -67,8 +67,8 @@ def call_tool(model: str, messages: list[dict], tool: dict) -> dict:
     """
     Asks the model to call one tool, and returns json.loads of its arguments.
 
-    Some models, e.g. Opus 5.5, reject a forced tool_choice, so a system message asks
-    for the call instead.
+    Some models, e.g. Opus 5.5, reject a forced tool_choice, so a final user message
+    asks for the call instead; last, so it follows any instruction in `messages`.
 
     Args:
         model: Model name as configured in the LiteLLM gateway.
@@ -80,16 +80,20 @@ def call_tool(model: str, messages: list[dict], tool: dict) -> dict:
         json.loads of the tool's arguments, as returned by the model.
 
     Raises:
-        ModelReplyError: The reply has no tool call, or its arguments aren't JSON.
+        ModelReplyError: The reply doesn't call the tool, or its arguments aren't JSON.
     """
     name = tool["function"]["name"]
-    system = {"role": "system", "content": prompts.CALL_TOOL.format(name=name)}
-    message = query(model, [system, *messages], tools=[tool], tool_choice="auto")
-    if not message.tool_calls:
-        content = message.content
-        raise ModelReplyError(f"Model replied without calling `{name}`: {content}")
+    ask = {"role": "user", "content": prompts.CALL_TOOL.format(name=name)}
+    message = query(model, [*messages, ask], tools=[tool], tool_choice="auto")
+    calls = message.tool_calls or []
+    matching = [c for c in calls if c.function.name == name]
+    if not matching:
+        called = [c.function.name for c in calls]
+        raise ModelReplyError(
+            f"Model didn't call `{name}` (called {called}): {message.content}"
+        )
     try:
-        return json.loads(message.tool_calls[0].function.arguments)
+        return json.loads(matching[0].function.arguments)
     except json.JSONDecodeError as e:
         raise ModelReplyError(f"`{name}` arguments aren't valid JSON: {e}") from e
 
