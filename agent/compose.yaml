@@ -1,0 +1,32 @@
+# Inspect's sandbox: one fresh agent container per sample
+services:
+  default:
+    image: ${SAMPLE_METADATA_IMAGE}     # set in build_task, src/aura/sandbox.py
+    x-local: true     # Built locally by scripts/build.sh; never pulled from a registry
+    pull_policy: never
+    command: ["tail", "-f", "/dev/null"]   # keep alive; Inspect runs the harness via exec
+    init: true
+    networks: [sandbox_net]      # no internet route; model calls go via Inspect's bridge
+    environment:
+      PIP_INDEX_URL: http://pypiserver:8080/simple/
+      PIP_TRUSTED_HOST: pypiserver
+      DISABLE_AUTOUPDATER: "1"
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+      OPENCODE_DISABLE_MODELS_FETCH: "1"
+      OPENCODE_DISABLE_LSP_DOWNLOAD: "1"
+      OPENCODE_DISABLE_CLAUDE_CODE: "1"
+    volumes:
+      # Read-only: Inspect refuses writable host mounts. /workspace is copied out
+      # to the run folder when the run ends (copy_workspace, src/aura/sandbox.py).
+      - ../skills:/skills:ro
+      - ${SAMPLE_METADATA_RUN_DIR}/task:/task:ro
+    cpus: 4
+    mem_limit: 16g
+    pids_limit: 512
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+networks:
+  sandbox_net:
+    external: true
+    name: aura_sandbox   # created by docker-compose.yml

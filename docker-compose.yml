@@ -1,35 +1,4 @@
 services:
-  agent:
-    image: research-sandbox:${AGENT_TAG:?not set in .env}
-    build: ./agent
-    profiles: ["run"]            # the agent is not started by 'docker compose up -d'; only by `aura run`
-    networks: [sandbox_net]      # no internet route
-    environment:
-      ANTHROPIC_BASE_URL: http://litellm:4000
-      ANTHROPIC_AUTH_TOKEN: ${RUN_KEY}
-      ANTHROPIC_MODEL: ${RUN_MODEL}
-      ANTHROPIC_DEFAULT_SONNET_MODEL: ${RUN_MODEL}
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: ${RUN_MODEL}
-      OPENAI_BASE_URL: http://litellm:4000/v1
-      OPENAI_API_KEY: ${RUN_KEY}
-      HTTP_PROXY: http://proxy:3128
-      HTTPS_PROXY: http://proxy:3128
-      NO_PROXY: litellm,litmcp
-      DISABLE_AUTOUPDATER: "1"
-      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
-      OPENCODE_DISABLE_MODELS_FETCH: "1"
-      OPENCODE_DISABLE_LSP_DOWNLOAD: "1"
-      OPENCODE_DISABLE_CLAUDE_CODE: "1"
-    volumes:
-      - ./skills:/skills:ro
-      - ${RUN_DIR}/workspace:/workspace
-      - ${RUN_DIR}/task:/task:ro
-    cpus: 4
-    mem_limit: 16g
-    pids_limit: 512
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
-
   postgres:
     image: postgres:17-alpine   # pin the major version to avoid breaking changes
     environment:
@@ -56,7 +25,7 @@ services:
     depends_on:
       postgres: {condition: service_healthy}
     volumes: ["./litellm/config.yaml:/app/config.yaml:ro"]
-    networks: [sandbox_net, egress_net, db_net]
+    networks: [egress_net, db_net]   # only the host (Inspect) calls the gateway
     ports: ["127.0.0.1:4000:4000"]
 
   litmcp:
@@ -70,13 +39,20 @@ services:
     cap_add: [CHOWN, SETUID, SETGID]
     security_opt: ["no-new-privileges:true"]
 
-  proxy:
-    image: ubuntu/squid:7.2-26.04_edge
-    volumes: ["./proxy/squid.conf:/etc/squid/squid.conf:ro"]
-    networks: [sandbox_net, egress_net]
+  pypiserver:
+    image: pypiserver/pypiserver:v2.4.2
+    # Bypasses entrypoint.sh, which demands write access to the read-only wheelhouse
+    entrypoint: ["pypi-server"]
+    user: "9898:9898"
+    command: ["run", "-p", "8080", "--disable-fallback", "/data/packages"]
+    volumes: ["./pypi/wheelhouse:/data/packages:ro"]
+    networks: [sandbox_net]      # serves only the wheelhouse; no egress
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
 
 networks:
   sandbox_net:
+    name: aura_sandbox   # fixed, so agent/compose.yaml can join it
     internal: true
   egress_net: {}
   db_net: {internal: true}
