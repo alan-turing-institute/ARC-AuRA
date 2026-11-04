@@ -41,7 +41,7 @@ model, decides what to try next.
      timeout and must write `metrics.json`. The model reviews the output (bug or not,
      and a summary) and its plots. A node is buggy if it crashed, timed out, wrote no
      metric, or the review says so.
-   - **Judge** (`best_node`): the model picks the best working node from metrics,
+   - **Judge** (`search.best_node`): the model picks the best working node from metrics,
      reviews and plot feedback, falling back to the best metric.
 3. **Outputs** (`report.py`): research questions and research design are filled in
    from the idea; the literature review, analysis and report are model-written. The
