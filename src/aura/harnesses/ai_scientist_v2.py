@@ -2,6 +2,15 @@ from inspect_ai.agent import Agent, AgentState, agent, sandbox_agent_bridge
 from inspect_ai.util import sandbox
 
 
+def loop_command(prompt: str, model: str, stages: list[str]) -> list[str]:
+    """Build the loop's command; the prompt goes before `--stages`, which takes all
+    the arguments after it."""
+    return [
+        "python", "-m", "ai_scientist_v2", prompt,
+        "--model", model, "--stages", *stages,
+    ]  # fmt: skip
+
+
 @agent
 def ai_scientist_v2_agent(model: str, stages: list[str]) -> Agent:
     """
@@ -19,18 +28,7 @@ def ai_scientist_v2_agent(model: str, stages: list[str]) -> Agent:
     """
 
     async def execute(state: AgentState) -> AgentState:
-        prompt = state.messages[0].text
-        # The prompt goes first, as '--stages' takes all the arguments after it
-        command = [
-            "python",
-            "-m",
-            "ai_scientist_v2",
-            prompt,
-            "--model",
-            model,
-            "--stages",
-            *stages,
-        ]
+        command = loop_command(state.messages[0].text, model, stages)
         async with sandbox_agent_bridge(
             state, forward_generation_config=True
         ) as bridge:
