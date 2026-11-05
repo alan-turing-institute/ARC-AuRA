@@ -4,6 +4,8 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+_LOG = Path("/workspace/log.txt")  # the launcher saves all events here, for debugging
+
 
 @dataclass
 class Node:
@@ -67,8 +69,11 @@ def save_bests(bests: dict[str, Node], finished: list[str], path: Path) -> None:
 
 
 def emit(event: str, **fields) -> None:
-    """Print one JSON event line to stdout, which the launcher saves in `log.txt`."""
-    print(json.dumps({"type": event, **fields}), flush=True)
+    """
+    Append one JSON event line to '/workspace/log.txt' for debugging and monitoring.
+    """
+    with _LOG.open("a", encoding="utf-8") as f:
+        f.write(json.dumps({"type": event, **fields}) + "\n")
 
 
 def summarise_journal(nodes: list[Node], limit: int = 10) -> str:

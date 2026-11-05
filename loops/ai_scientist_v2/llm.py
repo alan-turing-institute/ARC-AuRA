@@ -9,7 +9,7 @@ from ai_scientist_v2 import prompts
 
 # Room for a full experiment script and its plan, which can pass 8k tokens
 _MAX_TOKENS = 32000
-_BRIDGE_URL = "http://localhost:13131/v1"  # Inspect model bridge, configure?
+_BRIDGE_URL = "http://localhost:13131/v1"  # Inspect model bridge
 
 
 class BudgetExceeded(Exception):
