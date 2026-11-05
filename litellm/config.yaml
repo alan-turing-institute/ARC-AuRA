@@ -1,14 +1,18 @@
 model_list:
+  # Foundry models drop thinking.block_binding: Inspect sends it for 5.5-generation
+  # models, but Foundry rejects it
   - model_name: claude-opus-5-5
     litellm_params:
       model: azure_ai/claude-opus-5-5
       api_base: os.environ/AZURE_FOUNDRY_API_BASE
       api_key: os.environ/AZURE_FOUNDRY_API_KEY
+      additional_drop_params: ["thinking.block_binding"]
   - model_name: claude-haiku-4-5
     litellm_params:
       model: azure_ai/claude-haiku-4-5
       api_base: os.environ/AZURE_FOUNDRY_API_BASE
       api_key: os.environ/AZURE_FOUNDRY_API_KEY
+      additional_drop_params: ["thinking.block_binding"]
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
