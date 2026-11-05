@@ -85,6 +85,7 @@ Agents run with [Inspect](https://inspect.aisi.org.uk) in throwaway Docker conta
 | `.env` | repo root | Agent image tag. Increment it whenever the image changes to keep old images cached. |
 | `scripts/` | | `build.sh` builds the agent and `litmcp` images; `build_wheelhouse.sh` downloads the mirror's wheels. |
 | `aura run` | `src/aura/` | Assembles a task prompt and runs it as an Inspect eval in a fresh agent container. |
+| `aura check` | `src/aura/check.py` | Verifies the sandbox is secure; see [Verifying the sandbox](#verifying-the-sandbox). |
 | `tasks/` | | Task descriptions; see [Tasks](#tasks). |
 
 ### Code layout
@@ -95,6 +96,7 @@ Agents run with [Inspect](https://inspect.aisi.org.uk) in throwaway Docker conta
 | `run.py` | Runs a task: builds the prompt, makes the run folder and chains the steps below |
 | `task.py` | Assembles a task prompt from the files in `tasks/` |
 | `sandbox.py` | Runs the harness agent in a fresh sandbox through Inspect, and copies `/workspace` out |
+| `check.py` | Sandbox security checks, run by `aura check` |
 | `gateway.py` | Per-run LiteLLM keys: creates, blocks and records the spend of each |
 | `harnesses/` | One function per harness, each building an Inspect agent from a model name |
 | `constants.py` | Paths, models (from `litellm/config.yaml`), tiers and stages |
@@ -280,68 +282,16 @@ If making changes to the sandbox, some files require extra changes being made el
 
 ### Verifying the sandbox
 
-If needing to check the sandbox is still secure (e.g. after making changes), run the following from the repo root, with the shared services running. `sandbox` starts a throwaway agent container from `agent/compose.yaml`, as Inspect does:
+If needing to check the sandbox is still secure (e.g. after making changes), run the following with the shared services running:
 
 ```bash
-export SAMPLE_METADATA_IMAGE="research-sandbox:$(grep '^AGENT_TAG=' .env | cut -d= -f2)"
-export SAMPLE_METADATA_RUN_DIR="$TMPDIR/aura-check" && mkdir -p "$SAMPLE_METADATA_RUN_DIR/task"
-sandbox() { docker compose -f agent/compose.yaml run --rm -T default "$@"; }
-
-# 1. A real run works → finishes; cost.json shows a spend above 0
-aura run dummy_task --model claude-haiku-4-5 --budget 0.05
-
-# 2. Gateway not reachable → "Could not resolve host"
-sandbox curl -sS --max-time 5 http://litellm:4000/health/liveliness
-
-# 3. No route out (covers Foundry, Semantic Scholar, arXiv, ...) → resolve error or timeout
-sandbox curl -sS --max-time 5 https://example.com
-
-# 4. Allowlisted package installs from the mirror → downloads successfully
-sandbox pip download seaborn -d /tmp/x
-
-# 5. Package outside the wheelhouse → "No matching distribution found"
-sandbox pip download flask -d /tmp/x
-
-# 6. Task is read-only → "Read-only file system"
-sandbox touch /task/test
-
-# 7. No secrets inside a real run → 0 (run while an `aura run` is in progress)
-docker exec "$(docker ps -q --filter name=inspect- | head -1)" env \
-  | grep -c -F -e "$AZURE_FOUNDRY_API_KEY" -e "$LITELLM_MASTER_KEY" -e "${S2_API_KEY:?}"
-
-# 8. Not root → uid=1000(agent)
-sandbox id
-
-# 9. Memory limit enforced → process killed or MemoryError
-sandbox python -c "b = bytearray(20 * 1024**3)"
-
-# 10. Fresh each run → first command succeeds; second says "No such file or directory"
-sandbox touch /tmp/marker
-sandbox ls /tmp/marker
-
-# 11. Literature server reachable → a list of tool names (search_papers, get_paper, ...)
-sandbox curl -s -X POST http://litmcp:8000/mcp \
-  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | grep -o '"name":"[a-z_]*"'
-
-# 12. Database not reachable from the sandbox → socket.gaierror (name not resolved)
-sandbox python -c "import socket; socket.create_connection(('postgres', 5432), timeout=5)"
-
-# 13. A run key can't create keys → an error, not a new key
-KEY=$(curl -s localhost:4000/key/generate -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
-  -H 'Content-Type: application/json' -d '{"key_alias": "sandbox-check",
-  "models": ["claude-haiku-4-5"], "max_budget": 0.01, "duration": "10m",
-  "allowed_routes": ["llm_api_routes"]}' | jq -r .key)
-curl -s localhost:4000/key/generate -H "Authorization: Bearer $KEY" \
-  -H 'Content-Type: application/json' -d '{}'
-curl -s localhost:4000/key/block -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
-  -H 'Content-Type: application/json' -d "{\"key\": \"$KEY\"}" > /dev/null
-
-# 14. Budget enforced → the run stops with a budget error; cost.json still records its spend
-aura run dummy_task --budget 0.0001
+aura check          # container and gateway checks
+aura check --runs   # also does two real runs, checking billing and budgets (a few cents)
 ```
 
-Checks 2, 3 and 11 confirm that the agent reaches models only through Inspect's bridge and literature only through `litmcp`. Checks 7 and 12–14 confirm that agents never hold any key, can't reach the gateway's database, and are held to their run key's limits.
+Each check prints `PASS` or `FAIL` with what it confirms, and the command exits non-zero if any fail. Most start a throwaway agent container from `agent/compose.yaml`, as Inspect does. Together they confirm that the agent reaches models only through Inspect's bridge and literature only through `litmcp`, never holds any key, can't reach the gateway or its database, and is held to its run key's limits.
+
+To add or remove a check, add or remove a function returning whether it passed in `src/aura/check.py`, and its line in `CHECKS` (or `RUN_CHECKS`, for checks that do a real run).
 
 ## License
 
