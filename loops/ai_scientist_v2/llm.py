@@ -2,7 +2,6 @@
 
 import base64
 import json
-import os
 
 import litellm
 
@@ -10,6 +9,7 @@ from ai_scientist_v2 import prompts
 
 # Room for a full experiment script and its plan, which can pass 8k tokens
 _MAX_TOKENS = 32000
+_BRIDGE_URL = "http://localhost:13131/v1"  # Inspect model bridge, configure?
 
 
 class BudgetExceeded(Exception):
@@ -31,7 +31,8 @@ def query(
     gateway; return its reply.
 
     Args:
-        model: Model name as configured in the LiteLLM gateway.
+        model: Model name as configured in the LiteLLM gateway; calls go via Inspect's
+                bridge.
         messages: List of messages to send to the model.
         tools: List of tools available to the model.
         tool_choice: Optional tool choice to force the model to use a specific tool.
@@ -44,9 +45,9 @@ def query(
     """
     try:
         response = litellm.completion(
-            model=f"litellm_proxy/{model}",
-            api_base=os.environ["OPENAI_BASE_URL"],
-            api_key=os.environ["ANTHROPIC_AUTH_TOKEN"],
+            model=f"openai/{model}",
+            api_base=_BRIDGE_URL,
+            api_key="unused",  # the bridge ignores it; the host's call adds the run key.
             messages=messages,
             tools=tools,
             tool_choice=tool_choice,

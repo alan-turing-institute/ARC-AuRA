@@ -20,7 +20,7 @@ services:
       # to the run folder when the run ends (copy_workspace, src/aura/sandbox.py).
       - ../skills:/skills:ro
       - ${SAMPLE_METADATA_RUN_DIR}/task:/task:ro
-      - ./loops:/loops:ro
+      - ../loops
     cpus: 4
     mem_limit: 16g
     pids_limit: 512

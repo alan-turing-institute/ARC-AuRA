@@ -109,7 +109,7 @@ include = ["src"]
 [tool.ruff]
 line-length = 88
 target-version = "py311"
-src = ["src"]
+src = ["src", "loops"]
 
 [tool.ruff.lint]
 select = [
