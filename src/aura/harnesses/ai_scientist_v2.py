@@ -5,10 +5,10 @@ from inspect_ai.util import sandbox
 @agent
 def ai_scientist_v2_agent(model: str, stages: list[str]) -> Agent:
     """
-    Build an agent that runs the AI Scientist-v2 loop, mounted at, '/loops'.
+    Build an agent that runs the AI Scientist-v2 loop, mounted at /loops.
 
-    the loop calls models through Inspect's bridge, which forwards its generation
-    settings, such as, 'max_tokens'
+    The loop calls models through Inspect's bridge, which forwards its generation
+    settings, such as max_tokens.
 
     Args:
         model: Model name as configured in the LiteLLM gateway.
@@ -30,7 +30,7 @@ def ai_scientist_v2_agent(model: str, stages: list[str]) -> Agent:
             model,
             "--stages",
             *stages,
-        ]  # fmt: skip
+        ]
         async with sandbox_agent_bridge(
             state, forward_generation_config=True
         ) as bridge:

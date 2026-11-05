@@ -1,8 +1,10 @@
 # Inspect approval policy for agent tool calls. For each call, the approvers whose
 # `tools` match decide in order: approve (the call runs), escalate (the next one
 # decides) or reject (the call is denied). Tools are named as the harness names
-# them: Claude Code's and OpenCode's names are listed where they differ.
-#
+# them: The following harnesses names are listed where they differ:
+# - Claude Code
+# - OpenCode
+# - AI Scientist-v2
 # `aura run` adds two approvers after these, for all tools:
 # - the monitor, which scores each call's suspicion from 0 to 10 (see
 #   monitor_prompt.md) and approves, escalates or rejects it by the bands set with

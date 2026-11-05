@@ -21,7 +21,6 @@ def opencode_agent(model: str, stages: list[str]) -> Agent:
     Returns:
         The agent, to use as an Inspect solver.
     """
-    _ = stages  # unused, but required by Harness type
     config = {
         "autoupdate": False,
         "share": "disabled",

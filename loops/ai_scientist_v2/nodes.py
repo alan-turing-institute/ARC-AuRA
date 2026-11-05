@@ -4,7 +4,9 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-_LOG = Path("/workspace/log.txt")  # the launcher saves all events here, for debugging
+_LOG = Path(
+    "/workspace/log.txt"
+)  # event log, copied to the run folder with the workspace.
 
 
 @dataclass

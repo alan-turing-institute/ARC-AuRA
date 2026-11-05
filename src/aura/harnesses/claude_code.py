@@ -14,12 +14,11 @@ def claude_code_agent(model: str, stages: list[str]) -> Agent:
     Args:
         model: Model name as configured in the LiteLLM gateway; sets the model
             Claude Code presents as. Its calls go to the eval's model via the bridge.
-        stages: unused; the stages reach the agent in its prompt, not in its config.
+        stages: Unused; the stages reach the agent in its prompt, not in its config.
 
     Returns:
         The agent, to use as an Inspect solver.
     """
-    _ = stages  # unused, but required by Harness type
     return claude_code(
         version="sandbox",
         cwd="/workspace",
