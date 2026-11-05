@@ -40,7 +40,8 @@ def query(
         The model's reply message.
 
     Raises:
-        BudgetExceeded: The run key's budget is spent, or the key has expired.
+        BadRequestError: The gateway refuses the call, e.g. the run key is spent or
+                        expired.
         ModelReplyError: The reply was cut off at `_MAX_TOKENS`.
     """
     try:
@@ -54,7 +55,7 @@ def query(
             max_tokens=_MAX_TOKENS,
             num_retries=3,
         )
-    except (litellm.RateLimitError, litellm.AuthenticationError) as e:
+    except litellm.BadRequestError as e:
         # The gateway's messages for a spent budget and an expired run key
         if "Budget has been exceeded" in str(e) or "Expired Key" in str(e):
             raise BudgetExceeded(str(e)) from e
