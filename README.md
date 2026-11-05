@@ -210,7 +210,7 @@ Inside the container, the agent can read `/skills` and `/task` (read-only), writ
 ### Harnesses
 
 - `claude-code` and `opencode` run those agents, which follow the prompt to produce each stage's output.
-- `ai-scientist-v2` runs `loops/ai_scientist_v2/`, a compact reimplementation of [The AI Scientist-v2](https://arxiv.org/abs/2504.08066): it turns the task into an idea with a literature search, runs a four-phase tree search over experiment scripts, then writes the stage outputs. It runs only as far as the requested `--stages` need, e.g. `--stages lit_review` runs no experiments. It also writes `workspace/idea.json` and `workspace/tree/`, with each attempt's script, metrics and plots, `journal.json` (every attempt) and `best_nodes.json` (each search phase's best). Its `log.txt` events are `idea`, `node`, `phase_end` and `output`.
+- `ai-scientist-v2` runs `loops/ai_scientist_v2/`, a compact reimplementation of [The AI Scientist-v2](https://arxiv.org/abs/2504.08066): it turns the task into an idea with a literature search, runs a four-phase tree search over experiment scripts, then writes the stage outputs. It runs only as far as the requested `--stages` need, e.g. `--stages lit_review` runs no experiments. It also writes `workspace/idea.json` and `workspace/tree/`, with each attempt's script, metrics and plots, `journal.json` (every attempt) and `best_nodes.json` (each search phase's best). Its model calls go through Inspect's agent bridge, like the other harnesses. Its events (`idea`, `node`, `phase_end`, `output` and `budget_exceeded`) are written to `workspace/log.txt`. If the run's budget or time runs out, it stops and logs `budget_exceeded` instead of failing.
 
 ### Tasks
 
@@ -247,9 +247,9 @@ To see which literature tools an agent called, open the run in `inspect view` an
 
 ### Approval
 
-Inspect checks every tool call the model proposes against a chain of approvers before the harness sees it: the groups in `approval.yaml`, then the monitor, then (with `--human-review`) a human. For each call, the approvers whose `tools` pattern matches decide in order; a pattern without `*` matches as a prefix. Each one approves (the call runs), escalates (the next approver decides) or rejects (the call is denied). Patterns use each harness's own tool names (e.g. `Bash` and `mcp__literature__search_papers` for Claude Code, `bash` and `literature_search_papers` for OpenCode). A rejected call is never run: the model is told it was refused and proposes something else. After 3 rejections in a row, the run ends.
+Inspect checks every tool call the model proposes against a chain of approvers before the harness sees it: the groups in `approval.yaml`, then the monitor, then (with `--human-review`) a human. For each call, the approvers whose `tools` pattern matches decide in order; a pattern without `*` matches as a prefix. Each one approves (the call runs), escalates (the next approver decides) or rejects (the call is denied). Patterns use each harness's own tool names (e.g. `Bash` and `mcp__literature__search_papers` for Claude Code, `bash` and `literature_search_papers` for OpenCode, `submit_code` for AI Scientist-v2). A rejected call is never run: the model is told it was refused and proposes something else. After 3 rejections in a row, the run ends.
 
-Literature and read-only calls (Read, Glob, Grep and their OpenCode equivalents) are always approved and not scored. Every other call goes to the **monitor**: a second model (`--monitor-model`, default `claude-haiku-4-5`) that sees the task, the agent's last `--monitor-history` messages (default 20) of tool calls and results, and the pending call, but not the agent's own text or reasoning. It scores the call's suspicion from 0 to 10 against the concerns in `monitor_prompt.md`, then decides by these bands:
+Literature and read-only calls (Read, Glob, Grep and their OpenCode equivalents), and AI Scientist-v2 calls that only return choices or text, are always approved and not scored. Every other call goes to the **monitor**: a second model (`--monitor-model`, default `claude-haiku-4-5`) that sees the task, the agent's last `--monitor-history` messages (default 20) of tool calls and results, and the pending call, but not the agent's own text or reasoning. It scores the call's suspicion from 0 to 10 against the concerns in `monitor_prompt.md`, then decides by these bands:
 
 | Score | Decision |
 |---|---|
@@ -260,6 +260,8 @@ Literature and read-only calls (Read, Glob, Grep and their OpenCode equivalents)
 A reply without a score is escalated. With `--human-review`, escalated calls pause the run until you approve, reject or modify them in the terminal, so stay with the run; one left waiting holds until its key expires. Without it, escalated calls are denied. To score calls without blocking any, set `--escalate-at` above 10. `--reject-at` can't be lower than `--escalate-at`.
 
 Scores appear in `inspect view` next to each call (as the monitor's approval explanation), and the run's maximum and mean suspicion and its counts of escalated and rejected calls appear as the sample's scores. The monitor's calls are paid from the run's `--budget`.
+
+For `ai-scientist-v2`, the monitor scores `submit_code` and `submit_change`, so each experiment script is reviewed before it runs. Each of the loop's model calls starts a fresh conversation, so the monitor sees the loop's prompt for that call as the task, and little or no history.
 
 ### PyPI mirror
 
