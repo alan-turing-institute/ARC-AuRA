@@ -78,6 +78,7 @@ Agents run with [Inspect](https://inspect.aisi.org.uk) in throwaway Docker conta
 | `litellm` | `litellm/config.yaml` | Model gateway. Holds API keys and forwards model calls. Each run gets its own gateway key, limited to one model, a budget and an expiry. Published on `127.0.0.1:4000` only; only the host (`aura run` and Inspect) calls it, never the agent. |
 | `postgres` | `docker-compose.yml` | LiteLLM's database: run keys and their spend. Only `litellm` can reach it; data persists in the `litellm_db` volume. |
 | `pypiserver` | `pypi/allowlist.txt` | PyPI mirror. Serves only the wheels in `pypi/wheelhouse/`: the allowlisted packages and their dependencies. The agent's `pip` uses it; nothing else is installable. |
+| `loops` | `loops/` | Agent loops written for aura, mounted read-only at `/loops` in the agent container. `ai_scientist_v2/` is the `ai-scientist-v2` harness. |
 | `litmcp` | `litmcp/` | Literature MCP server. Searches Semantic Scholar and serves open-access paper text and page images to agents, caching every result in `litmcp/cache/`. Holds the Semantic Scholar key; agents only reach it over the sandbox network. |
 | `mcp.json` | repo root | MCP config pointing the agent at `litmcp`. `aura run` passes it to either harness. |
 | `approval.yaml` | repo root | Inspect approval policy: which approver handles each tool call. See [Approval](#approval). |
@@ -178,8 +179,8 @@ colima stop
 Tasks are run with `aura run`:
 
 ```bash
-aura run <task> [--harness claude-code|opencode] [--model claude-opus-5-5] [--task-tier 1] \
-  [--stages <stage> ...] [--budget 2.0] [--max-duration 1h] \
+aura run <task> [--harness claude-code|opencode|ai-scientist-v2] [--model claude-opus-5-5] \
+  [--task-tier 1] [--stages <stage> ...] [--budget 2.0] [--max-duration 1h] \
   [--monitor-model claude-haiku-4-5] [--monitor-history 20] [--escalate-at 4] [--reject-at 8] \
   [--human-review]
 ```
@@ -205,6 +206,11 @@ The task is passed to the agent inline in its prompt and also mounted read-only 
 Each run gets a fresh gateway key, limited to the chosen model, `--budget` (USD) and `--max-duration` (in LiteLLM's format, e.g. `30m` or `2h`). If the run reaches either limit, the gateway refuses further model calls and the run ends with an error. The key is blocked when the run ends, however it ends, and its spend is recorded about 12 seconds later, once LiteLLM has saved it. Budgets can be overshot slightly, by whatever the run spends in the last few seconds before the limit is noticed.
 
 Inside the container, the agent can read `/skills` and `/task` (read-only), write to `/workspace`, and `pip install` anything in the [PyPI mirror](#pypi-mirror).
+
+### Harnesses
+
+- `claude-code` and `opencode` run those agents, which follow the prompt to produce each stage's output.
+- `ai-scientist-v2` runs `loops/ai_scientist_v2/`, a compact reimplementation of [The AI Scientist-v2](https://arxiv.org/abs/2504.08066): it turns the task into an idea with a literature search, runs a four-phase tree search over experiment scripts, then writes the stage outputs. It runs only as far as the requested `--stages` need, e.g. `--stages lit_review` runs no experiments. It also writes `workspace/idea.json` and `workspace/tree/`, with each attempt's script, metrics and plots, `journal.json` (every attempt) and `best_nodes.json` (each search phase's best). Its model calls go through Inspect's agent bridge, like the other harnesses. Its events (`idea`, `node`, `phase_end`, `output` and `budget_exceeded`) are written to `workspace/log.txt`. If the run's budget or time runs out, it stops and logs `budget_exceeded` instead of failing.
 
 ### Tasks
 
@@ -241,9 +247,9 @@ To see which literature tools an agent called, open the run in `inspect view` an
 
 ### Approval
 
-Inspect checks every tool call the model proposes against a chain of approvers before the harness sees it: the groups in `approval.yaml`, then the monitor, then (with `--human-review`) a human. For each call, the approvers whose `tools` pattern matches decide in order; a pattern without `*` matches as a prefix. Each one approves (the call runs), escalates (the next approver decides) or rejects (the call is denied). Patterns use each harness's own tool names (e.g. `Bash` and `mcp__literature__search_papers` for Claude Code, `bash` and `literature_search_papers` for OpenCode). A rejected call is never run: the model is told it was refused and proposes something else. After 3 rejections in a row, the run ends.
+Inspect checks every tool call the model proposes against a chain of approvers before the harness sees it: the groups in `approval.yaml`, then the monitor, then (with `--human-review`) a human. For each call, the approvers whose `tools` pattern matches decide in order; a pattern without `*` matches as a prefix. Each one approves (the call runs), escalates (the next approver decides) or rejects (the call is denied). Patterns use each harness's own tool names (e.g. `Bash` and `mcp__literature__search_papers` for Claude Code, `bash` and `literature_search_papers` for OpenCode, `submit_code` for AI Scientist-v2). A rejected call is never run: the model is told it was refused and proposes something else. After 3 rejections in a row, the run ends.
 
-Literature and read-only calls (Read, Glob, Grep and their OpenCode equivalents) are always approved and not scored. Every other call goes to the **monitor**: a second model (`--monitor-model`, default `claude-haiku-4-5`) that sees the task, the agent's last `--monitor-history` messages (default 20) of tool calls and results, and the pending call, but not the agent's own text or reasoning. It scores the call's suspicion from 0 to 10 against the concerns in `monitor_prompt.md`, then decides by these bands:
+Literature and read-only calls (Read, Glob, Grep and their OpenCode equivalents), and AI Scientist-v2 calls that only return choices or text, are always approved and not scored. Every other call goes to the **monitor**: a second model (`--monitor-model`, default `claude-haiku-4-5`) that sees the task, the agent's last `--monitor-history` messages (default 20) of tool calls and results, and the pending call, but not the agent's own text or reasoning. It scores the call's suspicion from 0 to 10 against the concerns in `monitor_prompt.md`, then decides by these bands:
 
 | Score | Decision |
 |---|---|
@@ -254,6 +260,8 @@ Literature and read-only calls (Read, Glob, Grep and their OpenCode equivalents)
 A reply without a score is escalated. With `--human-review`, escalated calls pause the run until you approve, reject or modify them in the terminal, so stay with the run; one left waiting holds until its key expires. Without it, escalated calls are denied. To score calls without blocking any, set `--escalate-at` above 10. `--reject-at` can't be lower than `--escalate-at`.
 
 Scores appear in `inspect view` next to each call (as the monitor's approval explanation), and the run's maximum and mean suspicion and its counts of escalated and rejected calls appear as the sample's scores. The monitor's calls are paid from the run's `--budget`.
+
+For `ai-scientist-v2`, the monitor scores `submit_code` and `submit_change`, so each experiment script is reviewed before it runs. Each of the loop's model calls starts a fresh conversation, so the monitor sees the loop's prompt for that call as the task, and little or no history.
 
 ### PyPI mirror
 
@@ -269,6 +277,7 @@ If making changes to the sandbox, some files require extra changes being made el
 | `pypi/allowlist.txt` | run `./scripts/build_wheelhouse.sh` (it restarts `pypiserver` if running) |
 | `approval.yaml` or `agent/compose.yaml` | nothing; the next `aura run` uses them |
 | `litellm/config.yaml` | run `docker compose restart litellm`. If a provider rejects a request field Inspect sends, drop it for that model with `additional_drop_params` (see the Foundry models). If adding a provider, also add its key variable names to `litellm`'s `environment` in `docker-compose.yml` and run `docker compose up -d litellm` |
+| Anything in `loops/` | nothing: it is mounted into each run, so the next run uses it |
 | Anything in `litmcp/` | run `./scripts/build.sh`, then `docker compose up -d litmcp` (add or change its dependencies in the `litmcp` group in `pyproject.toml`, then `uv sync`; pre-commit regenerates `litmcp/requirements.txt`) |
 | Keys in `~/.zshrc` | run `source ~/.zshrc`, then `docker compose up -d litellm litmcp` |
 
@@ -345,4 +354,4 @@ Checks 2, 3 and 11 confirm that the agent reaches models only through Inspect's 
 
 ## License
 
-Distributed under the terms of the [BSD license](LICENSE).
+Distributed under the terms of the [BSD license](LICENSE), except `loops/ai_scientist_v2/`, which adapts The AI Scientist-v2's prompts and is under its [own license](loops/ai_scientist_v2/LICENSE).

@@ -1,6 +1,6 @@
 import json
 
-from aura.harnesses import mcp
+from aura.harnesses import ai_scientist_v2, mcp
 
 
 def test_mcp_servers_reads_mcp_json(tmp_path, monkeypatch):
@@ -11,3 +11,13 @@ def test_mcp_servers_reads_mcp_json(tmp_path, monkeypatch):
     (server,) = mcp.mcp_servers()
 
     assert (server.name, server.url) == ("lit", "http://litmcp:8000/mcp")
+
+
+def test_ai_scientist_v2_puts_prompt_before_stages():
+    command = ai_scientist_v2.loop_command(
+        "Do the task.", "claude-opus-5-5", ["lit_review", "report"]
+    )
+
+    assert command[:4] == ["python", "-m", "ai_scientist_v2", "Do the task."]
+    assert command[command.index("--model") + 1] == "claude-opus-5-5"
+    assert command[command.index("--stages") + 1 :] == ["lit_review", "report"]

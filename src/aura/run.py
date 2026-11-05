@@ -85,7 +85,7 @@ def run(
     task_monitor = monitor(history_size, escalate_at, reject_at)
     prompt = build_prompt(task, tier, stages)
     run_dir = make_run_dir(task, prompt, config)
-    agent = HARNESSES[harness](model)
+    agent = HARNESSES[harness](model, stages)
     task_spec = build_task(agent, task_monitor, prompt, run_dir, human_review)
     models = [model, monitor_model]
     with run_key(run_dir, models, budget, max_duration, metadata) as key:

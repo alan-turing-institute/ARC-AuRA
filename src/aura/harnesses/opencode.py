@@ -6,7 +6,7 @@ from inspect_swe import opencode
 from aura.harnesses.mcp import mcp_servers
 
 
-def opencode_agent(model: str) -> Agent:
+def opencode_agent(model: str, stages: list[str]) -> Agent:
     """
     Build an OpenCode agent using the image's install and the servers in `mcp.json`.
 
@@ -16,6 +16,7 @@ def opencode_agent(model: str) -> Agent:
 
     Args:
         model: Model name as configured in the LiteLLM gateway.
+        stages: unused; the stages reach the agent in its prompt, not in its config.
 
     Returns:
         The agent, to use as an Inspect solver.

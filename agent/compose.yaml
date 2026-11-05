@@ -5,7 +5,7 @@ services:
     x-local: true     # Built locally by scripts/build.sh; never pulled from a registry
     pull_policy: never
     command: ["tail", "-f", "/dev/null"]   # keep alive; Inspect runs the harness via exec
-    init: true
+    init: true                   # reaps orphaned processes, e.g. killed experiment workers
     networks: [sandbox_net]      # no internet route; model calls go via Inspect's bridge
     environment:
       PIP_INDEX_URL: http://pypiserver:8080/simple/
@@ -20,6 +20,7 @@ services:
       # to the run folder when the run ends (copy_workspace, src/aura/sandbox.py).
       - ../skills:/skills:ro
       - ${SAMPLE_METADATA_RUN_DIR}/task:/task:ro
+      - ../loops:/loops:ro
     cpus: 4
     mem_limit: 16g
     pids_limit: 512

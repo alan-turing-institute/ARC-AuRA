@@ -37,6 +37,7 @@ dependencies = [
     "httpx==0.28.1",
     "inspect-ai==0.3.282",
     "inspect-swe==0.2.72",
+    "openai>=3.46.0",
     "python-dotenv>=1.2.4",
     "pyyaml>=6.0",
 ]
@@ -86,7 +87,7 @@ log_cli_level = "INFO"
 testpaths = [
   "tests",
 ]
-pythonpath = ["litmcp"]  # litmcp modules import each other by bare name (import s2)
+pythonpath = ["litmcp", "loops"]  # litmcp modules import each other by bare name (import s2)
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.coverage]
@@ -109,7 +110,7 @@ include = ["src"]
 [tool.ruff]
 line-length = 88
 target-version = "py311"
-src = ["src"]
+src = ["src", "loops"]
 
 [tool.ruff.lint]
 select = [
