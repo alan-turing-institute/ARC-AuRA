@@ -1,6 +1,5 @@
 """Run a harness agent in a fresh sandbox, through Inspect."""
 
-import io
 import tarfile
 from pathlib import Path
 
@@ -21,7 +20,34 @@ from aura.constants import AGENT_COMPOSE, AGENT_TAG, APPROVAL_CONFIG
 from aura.gateway import GATEWAY_URL
 from aura.monitor import monitor_summary
 
-WORKSPACE_TAR = "/tmp/workspace.tar.gz"
+WORKSPACE_PARTS = "/tmp/workspace-parts"
+PART_SIZE = "90M"  # under Inspect's 100MiB read_file limit
+COPIED_MARKER = "workspace_copied"  # written to the run folder once the copy succeeds
+
+
+async def sandbox_run(command: str) -> str:
+    """Run a bash command in the sandbox, raising if it fails; return its stdout."""
+    result = await sandbox().exec(["bash", "-c", f"set -euo pipefail; {command}"])
+    if not result.success:
+        raise RuntimeError(f"`{command}` failed: {result.stderr}")
+    return result.stdout
+
+
+async def download_workspace(archive: Path) -> None:
+    """
+    Copy `/workspace` into a local `.tar.gz`, in parts small enough for `read_file`.
+
+    Args:
+        archive: Local path to write the archive to
+    """
+    await sandbox_run(
+        f"mkdir -p {WORKSPACE_PARTS} && tar -czf - -C /workspace . "
+        f"| split -b {PART_SIZE} -d -a 4 - {WORKSPACE_PARTS}/part."
+    )
+    parts = sorted((await sandbox_run(f"ls {WORKSPACE_PARTS}")).split())
+    with archive.open("wb") as f:
+        for part in parts:
+            f.write(await sandbox().read_file(f"{WORKSPACE_PARTS}/{part}", text=False))
 
 
 async def copy_workspace(state: TaskState) -> None:
@@ -34,9 +60,9 @@ async def copy_workspace(state: TaskState) -> None:
     Args:
         state: Sample state; its metadata holds the run folder.
     """
-    await sandbox().exec(["tar", "-czf", WORKSPACE_TAR, "-C", "/workspace", "."])
-    data = await sandbox().read_file(WORKSPACE_TAR, text=False)
-    workspace = Path(state.metadata["run_dir"]) / "workspace"
+    run_dir = Path(state.metadata["run_dir"])
+    archive = run_dir / "workspace.tar.gz"
+    await download_workspace(archive)
 
     def workspace_filter(
         member: tarfile.TarInfo, destination: str
@@ -59,8 +85,11 @@ async def copy_workspace(state: TaskState) -> None:
         except (tarfile.AbsoluteLinkError, tarfile.LinkOutsideDestinationError):
             return None
 
-    with tarfile.open(fileobj=io.BytesIO(data)) as tar:
-        tar.extractall(workspace, filter=workspace_filter)
+    with tarfile.open(archive) as tar:
+        tar.extractall(run_dir / "workspace", filter=workspace_filter)
+    archive.unlink()  # remove the archive after extraction
+    # Inspect only logs a warning if cleanup fails, so run_in_sandbox checks for this
+    (run_dir / COPIED_MARKER).touch()
 
 
 def approval_policies(monitor: Approver, human_review: bool) -> list[ApprovalPolicy]:
@@ -129,7 +158,8 @@ def run_in_sandbox(
         run_key: Gateway key for the run's model calls; it never enters the sandbox.
 
     Raises:
-        RuntimeError: If the run doesn't finish successfully.
+        RuntimeError: If the run doesn't finish successfully, or its workspace
+            wasn't copied out.
     """
     (log,) = eval(
         task,
@@ -140,4 +170,8 @@ def run_in_sandbox(
     if log.status != "success":
         raise RuntimeError(
             f"Run {log.status}: {log.error.message if log.error else ''}"
+        )
+    if not (run_dir / COPIED_MARKER).exists():
+        raise RuntimeError(
+            f"Workspace wasn't copied out; see the .eval log's warnings in {run_dir}"
         )
