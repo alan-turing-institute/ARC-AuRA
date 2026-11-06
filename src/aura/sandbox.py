@@ -13,9 +13,11 @@ from inspect_ai.approval import (
     read_approval_policies,
 )
 from inspect_ai.dataset import Sample
+from inspect_ai.event import ModelEvent
+from inspect_ai.log import EvalLog
 from inspect_ai.model import Model, get_model
 from inspect_ai.solver import TaskState
-from inspect_ai.util import sandbox
+from inspect_ai.util import override_sandbox_output_limit, sandbox
 
 from aura.constants import AGENT_COMPOSE, AGENT_TAG, APPROVAL_CONFIG
 from aura.gateway import GATEWAY_URL
@@ -32,10 +34,13 @@ async def copy_workspace(state: TaskState) -> None:
     point outside the folder.
 
     Args:
-        state: Sample state; its metadata holds the run folder.
+        state: Sample state; its metadata holds the run folder and the largest
+            compressed workspace to copy, in MiB.
     """
     await sandbox().exec(["tar", "-czf", WORKSPACE_TAR, "-C", "/workspace", "."])
-    data = await sandbox().read_file(WORKSPACE_TAR, text=False)
+    max_size = state.metadata["max_workspace_size"] * 1024**2
+    with override_sandbox_output_limit(max_size, "read_file"):
+        data = await sandbox().read_file(WORKSPACE_TAR, text=False)
     workspace = Path(state.metadata["run_dir"]) / "workspace"
 
     def workspace_filter(
@@ -82,7 +87,12 @@ def approval_policies(monitor: Approver, human_review: bool) -> list[ApprovalPol
 
 
 def build_task(
-    agent: Agent, monitor: Approver, prompt: str, run_dir: Path, human_review: bool
+    agent: Agent,
+    monitor: Approver,
+    prompt: str,
+    run_dir: Path,
+    human_review: bool,
+    max_workspace_size: int,
 ) -> Task:
     """
     Build the one-sample Inspect task that runs an agent in a fresh sandbox.
@@ -94,12 +104,17 @@ def build_task(
         run_dir: Run folder; its `task` folder is mounted and `workspace` filled at
             the end.
         human_review: Whether a human decides on calls the monitor escalates.
+        max_workspace_size: Largest compressed workspace to copy out, in MiB.
 
     Returns:
         The task, with the approval chain, monitor summary and workspace copy
         attached.
     """
-    metadata = {"image": f"research-sandbox:{AGENT_TAG}", "run_dir": str(run_dir)}
+    metadata = {
+        "image": f"research-sandbox:{AGENT_TAG}",
+        "run_dir": str(run_dir),
+        "max_workspace_size": max_workspace_size,
+    }
     return Task(
         dataset=[Sample(input=prompt, metadata=metadata)],
         solver=agent,
@@ -107,6 +122,15 @@ def build_task(
         sandbox=("docker", str(AGENT_COMPOSE)),
         approval=approval_policies(monitor, human_review),
         cleanup=copy_workspace,
+    )
+
+
+def budget_exceeded(log: EvalLog) -> bool:
+    """Return whether the gateway refused any model call for exceeding the budget."""
+    return any(
+        isinstance(event, ModelEvent) and "budget_exceeded" in (event.error or "")
+        for sample in log.samples or []
+        for event in sample.events
     )
 
 
@@ -129,7 +153,8 @@ def run_in_sandbox(
         run_key: Gateway key for the run's model calls; it never enters the sandbox.
 
     Raises:
-        RuntimeError: If the run doesn't finish successfully.
+        RuntimeError: If the run doesn't finish successfully, runs out of budget, or
+            its workspace isn't copied out of the sandbox.
     """
     (log,) = eval(
         task,
@@ -140,4 +165,13 @@ def run_in_sandbox(
     if log.status != "success":
         raise RuntimeError(
             f"Run {log.status}: {log.error.message if log.error else ''}"
+        )
+    if budget_exceeded(log):
+        raise RuntimeError("Run ran out of budget, outputs may be incomplete")
+    # Inspect only logs exceptions raised in task cleanup, so check copy_workspace
+    # here; the run folder's `workspace` starts empty.
+    if not any((run_dir / "workspace").iterdir()):
+        raise RuntimeError(
+            "Workspace is empty, so copying it out of the sandbox may have failed; "
+            "see the cleanup warning in the log"
         )

@@ -181,7 +181,7 @@ Tasks are run with `aura run`:
 aura run <task> [--harness claude-code|opencode] [--model claude-opus-5-5] [--task-tier 1] \
   [--stages <stage> ...] [--budget 2.0] [--max-duration 1h] \
   [--monitor-model claude-haiku-4-5] [--monitor-history 20] [--escalate-at 4] [--reject-at 8] \
-  [--human-review]
+  [--human-review] [--max-workspace-size 1024]
 ```
 
 For example:
@@ -195,7 +195,7 @@ aura run dataset_similarity --task-tier 2 --stages lit_review research_design
 
 The task is passed to the agent inline in its prompt and also mounted read-only at `/task/TASK.md`, so the agent can reread it. Each run creates `runs/<timestamp>-<task>-<n>/` containing:
 
-- `workspace/`: everything the agent wrote, copied out of the container when the run ends
+- `workspace/`: everything the agent wrote, copied out of the container when the run ends. The run fails if the compressed workspace exceeds `--max-workspace-size` (MiB)
 - `task/TASK.md`: the task exactly as the agent received it
 - `<timestamp>_...eval`: Inspect's log of the run: every model call, tool call, approval decision and result. View it with `inspect view --log-dir runs/<run>`
 - `run_config.json`: image tag and options (including stages)

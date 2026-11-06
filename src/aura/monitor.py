@@ -1,8 +1,9 @@
 """
 Score each tool call's suspicion with a monitor model, and act on the score.
 
-The `monitor` approver approves, escalates or rejects each call it sees, using the
-bands set in `approval.yaml`, and records every score in the sample store. The
+The `monitor` approver approves, escalates or rejects each call that
+`approval.yaml` leaves undecided, using the bands set by `--escalate-at` and
+`--reject-at`, and records every score in the sample store. The
 `monitor_summary` scorer summarises those scores for the run.
 """
 
