@@ -47,6 +47,7 @@ def run(
     history_size: int,
     escalate_at: int,
     reject_at: int,
+    max_workspace_size: int,
 ) -> None:
     """
     Build a task prompt, record the run's settings and run it in the sandbox.
@@ -64,6 +65,7 @@ def run(
         history_size: Number of recent messages the monitor sees.
         escalate_at: Lowest suspicion score the monitor escalates.
         reject_at: Lowest suspicion score the monitor rejects.
+        max_workspace_size: Largest compressed workspace to copy out, in MiB.
     """
     config = {
         "image": f"research-sandbox:{AGENT_TAG}",
@@ -79,6 +81,7 @@ def run(
         "reject_at": reject_at,
         "budget": budget,
         "duration": max_duration,
+        "max_workspace_size": max_workspace_size,
     }
     metadata = {"task": task, "harness": harness, "tier": tier}
 
@@ -86,7 +89,9 @@ def run(
     prompt = build_prompt(task, tier, stages)
     run_dir = make_run_dir(task, prompt, config)
     agent = HARNESSES[harness](model)
-    task_spec = build_task(agent, task_monitor, prompt, run_dir, human_review)
+    task_spec = build_task(
+        agent, task_monitor, prompt, run_dir, human_review, max_workspace_size
+    )
     models = [model, monitor_model]
     with run_key(run_dir, models, budget, max_duration, metadata) as key:
         run_in_sandbox(task_spec, run_dir, model, monitor_model, key)
