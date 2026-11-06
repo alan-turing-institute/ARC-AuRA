@@ -219,10 +219,11 @@ tasks/
     requirement.md
     research_questions.md
     lit_review.md
+    research_design.md
     instructions.md          # optional; overrides the shared template
 ```
 
-Tiers are numbered and stack in order: 1 = requirement, 2 = + research questions, 3 = + lit review. For example, `--task-tier 2` includes `requirement.md` and `research_questions.md`. Each section is wrapped in tags named after its file (e.g. `<requirement>…</requirement>`), and the shared template explains what each one is. Only the files up to the chosen tier need to exist.
+Tiers are numbered and stack in order: 1 = requirement, 2 = + research questions, 3 = + lit review, 4 = + research design. For example, `--task-tier 2` includes `requirement.md` and `research_questions.md`. Each section is wrapped in tags named after its file (e.g. `<requirement>…</requirement>`), and the shared template explains what each one is. Only the files up to the chosen tier need to exist.
 
 ### Literature tools
 

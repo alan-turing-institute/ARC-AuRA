@@ -7,6 +7,7 @@ The project description is split into components, each wrapped in its own tag. Y
 1. `<requirement>`: Always provided. A basic description of the project's initial goals.
 2. `<research_questions>`: If provided, a scoped version of the requirement. Answer these questions.
 3. `<lit_review>`: If provided, the output of initial research that provides additional information from the literature relevant to the goal.
+4. `<research_design>`: If provided, the methodology and experiments planned for the project. Follow this design.
 
 A full research project has the following stages:
 
