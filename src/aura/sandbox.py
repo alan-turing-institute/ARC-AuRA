@@ -5,6 +5,7 @@ import tarfile
 from pathlib import Path
 
 from inspect_ai import Task, eval
+from inspect_ai._util.registry import RegistryInfo, set_registry_info
 from inspect_ai.agent import Agent
 from inspect_ai.approval import (
     ApprovalPolicy,
@@ -112,7 +113,12 @@ def build_task(
 
 def gateway_model(model: str, run_key: str) -> Model:
     """Return an Inspect model that calls `model` through the gateway."""
-    return get_model(f"anthropic/{model}", base_url=GATEWAY_URL, api_key=run_key)
+    gateway = get_model(f"aura_gateway/{model}", base_url=GATEWAY_URL, api_key=run_key)
+    # The registration alias selects our retry policy only. Keep the original
+    # Anthropic identity for Inspect's logs, pricing and throughput accounting.
+    set_registry_info(gateway.api, RegistryInfo(type="modelapi", name="anthropic"))
+    gateway.api.qualified_model_name = str(gateway)
+    return gateway
 
 
 def run_in_sandbox(
