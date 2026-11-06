@@ -85,6 +85,7 @@ def run(
     task_monitor = monitor(history_size, escalate_at, reject_at)
     prompt = build_prompt(task, tier, stages)
     run_dir = make_run_dir(task, prompt, config)
+    print(f"Run folder: {run_dir}", flush=True)  # `aura check` reads this line
     agent = HARNESSES[harness](model)
     task_spec = build_task(agent, task_monitor, prompt, run_dir, human_review)
     models = [model, monitor_model]

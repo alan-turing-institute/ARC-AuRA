@@ -21,7 +21,7 @@ AGENT_TAG = dotenv_values(PROJECT_ROOT / ".env")["AGENT_TAG"]
 MODELS = tuple(
     m["model_name"] for m in yaml.safe_load(LITELLM_CONFIG.read_text())["model_list"]
 )
-TIERS = ("requirement", "research_questions", "lit_review")
+TIERS = ("requirement", "research_questions", "lit_review", "research_design")
 STAGES = (
     "research_questions",
     "lit_review",
