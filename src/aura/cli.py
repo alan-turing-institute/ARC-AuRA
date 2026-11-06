@@ -1,7 +1,9 @@
 """Command-line entry point for AuRA."""
 
 import argparse
+import sys
 
+from aura.check.runner import check
 from aura.constants import MODELS, STAGES, TIERS
 from aura.run import HARNESSES, run
 
@@ -9,6 +11,8 @@ from aura.run import HARNESSES, run
 def main() -> None:
     parser = argparse.ArgumentParser(prog="aura")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # aura run -- main command for running tasks in the agent sandbox
     run_parser = subparsers.add_parser("run", help="Run a task in the agent sandbox.")
     run_parser.add_argument("task", help="Name of a folder in tasks/.")
     run_parser.add_argument("--harness", choices=HARNESSES, default="claude-code")
@@ -70,7 +74,21 @@ def main() -> None:
         default=8,
         help="Lowest suspicion score (0-10) the monitor rejects outright.",
     )
+
+    # aura check -- command for verifying the sandbox is secure
+    check_parser = subparsers.add_parser(
+        "check", help="Verify the agent sandbox is secure."
+    )
+    check_parser.add_argument(
+        "--runs",
+        action="store_true",
+        help="Also do two real runs, checking billing and budgets (costs a few cents).",
+    )
+
+    # Parse the command-line arguments and execute the appropriate command
     args = parser.parse_args()
+    if args.command == "check":
+        sys.exit(0 if check(args.runs) else 1)
     run(
         args.task,
         args.harness,
