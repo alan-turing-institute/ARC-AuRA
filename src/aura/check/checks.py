@@ -22,7 +22,18 @@ CHECK_MODEL = "claude-haiku-4-5"
 
 
 def sandbox(*cmd: str) -> subprocess.CompletedProcess[str]:
-    """Run a command in a throwaway agent container, started as Inspect starts one."""
+    """
+    Run a command in a throwaway agent container, started as Inspect starts one.
+
+    The container comes from `docker compose run --rm -T default <cmd>` on
+    `agent/compose.yaml`, with an empty `task` folder mounted.
+
+    Args:
+        cmd: The command and its arguments, e.g. `"id"` or `"touch", "/task/test"`.
+
+    Returns:
+        The finished `docker compose run`, with its output captured as text.
+    """
     with tempfile.TemporaryDirectory() as run_dir:
         (Path(run_dir) / "task").mkdir()
         env = {
@@ -37,7 +48,15 @@ def sandbox(*cmd: str) -> subprocess.CompletedProcess[str]:
 
 
 def output(result: subprocess.CompletedProcess[str]) -> str:
-    """Return a command's stdout and stderr together."""
+    """
+    Return a command's stdout and stderr together.
+
+    Args:
+        result: A finished command, run with its output captured as text.
+
+    Returns:
+        Its stdout followed by its stderr.
+    """
     return result.stdout + result.stderr
 
 
@@ -95,8 +114,10 @@ def no_secrets() -> bool:
     """Look for the host's key values in the sandbox's environment."""
     secret_vars = ("AZURE_FOUNDRY_API_KEY", "LITELLM_MASTER_KEY", "S2_API_KEY")
     secrets = [value for var in secret_vars if (value := os.environ.get(var))]
-    env = sandbox("env").stdout
-    return not any(secret in env for secret in secrets)
+    result = sandbox("env")
+    if result.returncode != 0:  # empty output would otherwise pass
+        return False
+    return not any(secret in result.stdout for secret in secrets)
 
 
 def not_root() -> bool:
@@ -132,7 +153,7 @@ def litmcp_reachable() -> bool:
     """List the literature server's tools from the sandbox."""
     tools_list = '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
     result = sandbox(
-        "curl", "-s", "-X", "POST", "http://litmcp:8000/mcp",
+        "curl", "-s", "--max-time", "5", "-X", "POST", "http://litmcp:8000/mcp",
         "-H", "Content-Type: application/json",
         "-H", "Accept: application/json, text/event-stream",
         "-d", tools_list,
