@@ -202,7 +202,7 @@ The task is passed to the agent inline in its prompt and also mounted read-only 
 - `cost.json`: the run's key alias, budget, expiry and final spend in USD
 - `warnings.txt`: only if the gateway couldn't block the key or report its spend
 
-Each run gets a fresh gateway key, limited to the chosen model, `--budget` (USD) and `--max-duration` (in LiteLLM's format, e.g. `30m` or `2h`). If the run reaches either limit, the gateway refuses further model calls and the run ends with an error. The key is blocked when the run ends, however it ends, and its spend is recorded about 12 seconds later, once LiteLLM has saved it. Budgets can be overshot slightly, by whatever the run spends in the last few seconds before the limit is noticed.
+Each run gets a fresh gateway key, limited to the chosen model, `--budget` (USD) and `--max-duration` (in LiteLLM's format, e.g. `30m` or `2h`). If the run reaches either limit, the gateway refuses further model calls and the run ends with an error. For both agent and monitor calls, a structured HTTP 429 `budget_exceeded` error ends Inspect's retries after the SDK's finite retries; ordinary rate limits and transient errors retain their usual retry behavior. The key is blocked when the run ends, however it ends, and its spend is recorded about 12 seconds later, once LiteLLM has saved it. Budgets can be overshot slightly, by whatever the run spends in the last few seconds before the limit is noticed.
 
 Inside the container, the agent can read `/skills` and `/task` (read-only), write to `/workspace`, and `pip install` anything in the [PyPI mirror](#pypi-mirror).
 

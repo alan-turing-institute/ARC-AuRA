@@ -14,10 +14,28 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import httpx
+from anthropic import APIStatusError
+from inspect_ai.model import RetryDecision, modelapi
+from inspect_ai.model._providers.anthropic import AnthropicAPI
 
 GATEWAY_URL = os.environ.get("LITELLM_URL", "http://localhost:4000")
 client = httpx.Client(base_url=GATEWAY_URL, timeout=30)
 SPEND_WAIT = 12  # seconds: LiteLLM writes spend to its database every 10 s
+
+
+@modelapi(name="aura_gateway")
+class GatewayAnthropicAPI(AnthropicAPI):
+    """Keep Inspect's Anthropic retries except for exhausted gateway budgets."""
+
+    def should_retry(self, ex: BaseException) -> bool | RetryDecision:
+        if isinstance(ex, APIStatusError) and ex.status_code == 429:
+            body = ex.body
+            if isinstance(body, dict):
+                # Accept LiteLLM's envelope and SDK-unwrapped error objects.
+                error = body.get("error", body)
+                if isinstance(error, dict) and error.get("type") == "budget_exceeded":
+                    return RetryDecision.no()
+        return super().should_retry(ex)
 
 
 def _request(method: str, path: str, **kwargs) -> dict:
