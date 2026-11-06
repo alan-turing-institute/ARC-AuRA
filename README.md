@@ -85,7 +85,7 @@ Agents run with [Inspect](https://inspect.aisi.org.uk) in throwaway Docker conta
 | `.env` | repo root | Agent image tag. Increment it whenever the image changes to keep old images cached. |
 | `scripts/` | | `build.sh` builds the agent and `litmcp` images; `build_wheelhouse.sh` downloads the mirror's wheels. |
 | `aura run` | `src/aura/` | Assembles a task prompt and runs it as an Inspect eval in a fresh agent container. |
-| `aura check` | `src/aura/check.py` | Verifies the sandbox is secure; see [Verifying the sandbox](#verifying-the-sandbox). |
+| `aura check` | `src/aura/check/` | Verifies the sandbox is secure; see [Verifying the sandbox](#verifying-the-sandbox). |
 | `tasks/` | | Task descriptions; see [Tasks](#tasks). |
 
 ### Code layout
@@ -96,7 +96,7 @@ Agents run with [Inspect](https://inspect.aisi.org.uk) in throwaway Docker conta
 | `run.py` | Runs a task: builds the prompt, makes the run folder and chains the steps below |
 | `task.py` | Assembles a task prompt from the files in `tasks/` |
 | `sandbox.py` | Runs the harness agent in a fresh sandbox through Inspect, and copies `/workspace` out |
-| `check.py` | Sandbox security checks, run by `aura check` |
+| `check/` | Sandbox security checks (`checks.py`) and their runner (`runner.py`), used by `aura check` |
 | `gateway.py` | Per-run LiteLLM keys: creates, blocks and records the spend of each |
 | `harnesses/` | One function per harness, each building an Inspect agent from a model name |
 | `constants.py` | Paths, models (from `litellm/config.yaml`), tiers and stages |
@@ -291,7 +291,7 @@ aura check --runs   # also does two real runs, checking billing and budgets (a f
 
 Each check prints `PASS` or `FAIL` with what it confirms, and the command exits non-zero if any fail. Most start a throwaway agent container from `agent/compose.yaml`, as Inspect does. Together they confirm that the agent reaches models only through Inspect's bridge and literature only through `litmcp`, never holds any key, can't reach the gateway or its database, and is held to its run key's limits.
 
-To add or remove a check, add or remove a function returning whether it passed in `src/aura/check.py`, and its line in `CHECKS` (or `RUN_CHECKS`, for checks that do a real run).
+To add or remove a check, add or remove a function returning whether it passed in `src/aura/check/checks.py`, and its line in `CHECKS` (or `RUN_CHECKS`, for checks that do a real run).
 
 ## License
 

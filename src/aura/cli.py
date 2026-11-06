@@ -3,7 +3,7 @@
 import argparse
 import sys
 
-from aura.check import check
+from aura.check.runner import check
 from aura.constants import MODELS, STAGES, TIERS
 from aura.run import HARNESSES, run
 

@@ -1,5 +1,5 @@
 """
-Verify the agent sandbox is secure.
+Sandbox security checks, run by `aura check`.
 
 Each check is a function returning whether it passed. To add or remove one, add or
 remove its function and its line in `CHECKS` (or `RUN_CHECKS`, for checks that do a
@@ -8,6 +8,7 @@ real run).
 
 import json
 import os
+import re
 import subprocess
 import tempfile
 from collections.abc import Callable
@@ -15,13 +16,9 @@ from datetime import datetime
 from pathlib import Path
 
 from aura import gateway
-from aura.constants import AGENT_COMPOSE, AGENT_TAG, PROJECT_ROOT
+from aura.constants import AGENT_COMPOSE, AGENT_TAG
 
-RUNS_DIR = PROJECT_ROOT / "runs"
 CHECK_MODEL = "claude-haiku-4-5"
-SECRET_VARS = ("AZURE_FOUNDRY_API_KEY", "LITELLM_MASTER_KEY", "S2_API_KEY")
-LITMCP_TOOLS_LIST = '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-STATUS = {True: "\033[32mPASS\033[0m", False: "\033[31mFAIL\033[0m"}  # green, red
 
 
 def sandbox(*cmd: str) -> subprocess.CompletedProcess[str]:
@@ -53,12 +50,16 @@ def aura_run(budget: str) -> tuple[subprocess.CompletedProcess[str], Path]:
 
     Returns:
         The finished command, and the `cost.json` path in the run folder it created.
+
+    Raises:
+        RuntimeError: If the run stopped before creating its run folder.
     """
-    before = set(RUNS_DIR.glob("*"))
     cmd = ["aura", "run", "dummy_task", "--model", CHECK_MODEL, "--budget", budget]
     result = subprocess.run(cmd, capture_output=True, text=True)
-    (run_dir,) = set(RUNS_DIR.glob("*")) - before
-    return result, run_dir / "cost.json"
+    match = re.search(r"^Run folder: (.+)$", result.stdout, re.MULTILINE)
+    if not match:
+        raise RuntimeError("aura run stopped before creating its run folder")
+    return result, Path(match[1]) / "cost.json"
 
 
 def gateway_unreachable() -> bool:
@@ -92,7 +93,8 @@ def task_read_only() -> bool:
 
 def no_secrets() -> bool:
     """Look for the host's key values in the sandbox's environment."""
-    secrets = [value for var in SECRET_VARS if (value := os.environ.get(var))]
+    secret_vars = ("AZURE_FOUNDRY_API_KEY", "LITELLM_MASTER_KEY", "S2_API_KEY")
+    secrets = [value for var in secret_vars if (value := os.environ.get(var))]
     env = sandbox("env").stdout
     return not any(secret in env for secret in secrets)
 
@@ -103,8 +105,21 @@ def not_root() -> bool:
 
 
 def memory_limited() -> bool:
-    """Allocate more memory than the container's limit; it should fail."""
-    return sandbox("python", "-c", "b = bytearray(20 * 1024**3)").returncode != 0
+    """
+    Allocate past the container's memory limit; the limit itself should stop it.
+
+    Reading the limit first means an unlimited container is never asked to allocate.
+    The cgroup's `oom` count rises only when its own limit is hit, unlike `oom_kill`,
+    which also counts host-level kills, so it's read in the allocating container.
+    """
+    cgroup = "/sys/fs/cgroup"  # the container's own cgroup (v2)
+    limit = sandbox("cat", f"{cgroup}/memory.max").stdout.strip()
+    if not limit.isdigit():  # "max", i.e. no limit
+        return False
+    allocate = f"python -c 'bytearray({limit} + 2**30)'"
+    result = sandbox("sh", "-c", f"{allocate}; cat {cgroup}/memory.events")
+    events = dict(line.split() for line in result.stdout.splitlines())
+    return int(events["oom"]) > 0
 
 
 def fresh_containers() -> bool:
@@ -115,11 +130,12 @@ def fresh_containers() -> bool:
 
 def litmcp_reachable() -> bool:
     """List the literature server's tools from the sandbox."""
+    tools_list = '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
     result = sandbox(
         "curl", "-s", "-X", "POST", "http://litmcp:8000/mcp",
         "-H", "Content-Type: application/json",
         "-H", "Accept: application/json, text/event-stream",
-        "-d", LITMCP_TOOLS_LIST,
+        "-d", tools_list,
     )  # fmt: skip
     return "search_papers" in result.stdout
 
@@ -131,15 +147,24 @@ def database_unreachable() -> bool:
 
 
 def run_key_limited() -> bool:
-    """Create a key with a run key; the gateway should refuse."""
+    """
+    Create a key with a run key; the gateway should refuse it as unauthorised.
+
+    Raises:
+        RuntimeError: If the gateway errors for another reason, so permission wasn't
+            tested.
+    """
     alias = f"sandbox-check-{datetime.now():%Y%m%d-%H%M%S}"  # aliases must be unique
     key = gateway.create_run_key(alias, [CHECK_MODEL], 0.01, "10m", {})
     try:
         headers = {"Authorization": f"Bearer {key}"}
         response = gateway.client.post("/key/generate", headers=headers, json={})
-        return not response.is_success
     finally:
         gateway.block_key(key)
+    denied = response.status_code in (401, 403)
+    if not denied and not response.is_success:
+        raise RuntimeError(f"/key/generate failed ({response.status_code}), not denied")
+    return denied
 
 
 def run_billed() -> bool:
@@ -175,43 +200,3 @@ RUN_CHECKS: dict[str, Callable[[], bool]] = {
     "Real run completes and is billed": run_billed,
     "Budget enforced": budget_enforced,
 }
-
-
-def report(description: str, check: Callable[[], bool], width: int) -> bool:
-    """
-    Run one check and print its description, dotted out to a green PASS or red FAIL.
-
-    An error counts as a failure and is printed after FAIL, so the remaining checks
-    still run.
-
-    Args:
-        description: What the check confirms.
-        check: Function returning whether the check passed.
-        width: Length of the longest description, so every PASS/FAIL lines up.
-
-    Returns:
-        Whether the check passed.
-    """
-    try:
-        passed, error = check(), ""
-    except Exception as e:
-        passed, error = False, f"  {e}"
-    leader = f"{description} ".ljust(width + 4, ".")
-    print(f"{leader} {STATUS[passed]}{error}", flush=True)
-    return passed
-
-
-def check(runs: bool) -> bool:
-    """
-    Run every sandbox check, printing each result.
-
-    Args:
-        runs: Whether to also run `RUN_CHECKS`, which do real (paid) runs.
-
-    Returns:
-        Whether every check passed.
-    """
-    checks = {**CHECKS, **RUN_CHECKS} if runs else CHECKS
-    width = max(map(len, checks))
-    results = [report(description, fn, width) for description, fn in checks.items()]
-    return all(results)  # after running every check, not stopping at a failure

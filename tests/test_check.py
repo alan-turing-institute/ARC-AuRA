@@ -1,8 +1,8 @@
-"""Tests for src/aura/check.py's reporting; the checks themselves need Docker."""
+"""Tests for src/aura/check/runner.py; the checks themselves need Docker."""
 
 import pytest
 
-from aura.check import STATUS, report
+from aura.check.runner import STATUS, report
 
 
 def broken() -> bool:
